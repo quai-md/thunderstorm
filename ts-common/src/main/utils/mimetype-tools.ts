@@ -47,3 +47,5 @@ export const MimeType_GROUP_rar = [
 	MimeType_rar_octetStream,
 ];
 
+//google files
+export const MimeType_googleDoc = 'application/vnd.google-apps.document'

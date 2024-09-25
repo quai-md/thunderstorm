@@ -40,6 +40,7 @@
   },
   "dependencies": {
     "@nu-art/firebase": "$THUNDERSTORM_DEPENDENCY_VERSION",
+    "@nu-art/google-services": "$THUNDERSTORM_DEPENDENCY_VERSION",
     "@nu-art/ts-common": "$THUNDERSTORM_DEPENDENCY_VERSION",
     "@nu-art/ts-styles": "$THUNDERSTORM_DEPENDENCY_VERSION",
     "firebase": "$FIREBASE_PKG_VERSION",
@@ -66,7 +67,9 @@
     "react-window": "^1.8.8",
     "react-virtualized-auto-sizer": "^1.0.12",
     "pako": "^2.1.0",
-    "papaparse": "^5.4.1"
+    "papaparse": "^5.4.1",
+    "google-auth-library": "^6.0.6",
+    "googleapis": "^55.0.0"
   },
   "devDependencies": {
     "@types/papaparse": "^5.3.14",
