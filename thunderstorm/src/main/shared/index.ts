@@ -34,3 +34,5 @@ export * from './sync-env';
 export * from './archiving';
 export * from './_entity';
 export * from './headers';
+//google docs
+export * from './google-docs';
