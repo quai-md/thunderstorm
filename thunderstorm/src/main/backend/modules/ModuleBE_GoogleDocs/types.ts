@@ -1,11 +1,17 @@
-import {CredentialBody} from 'google-auth-library';
-import {docs_v1} from 'googleapis';
+type GoogleDocs_UpdateText = {
+	type: 'text',
+	content: string,
+};
 
-export type CredentialsData = {
-	credentials: CredentialBody | string,
-	scopes: string[]
-}
+type GoogleDocs_UpdateList = {
+	type: 'list',
+	items: string[],
+};
 
-export type GoogleDocUpdateRequest<T extends keyof docs_v1.Schema$Request = keyof docs_v1.Schema$Request> = docs_v1.Schema$Request[T]
+type GoogleDocs_UpdateTable = {
+	type: 'table',
+	headers: string[],
+	rows: string[][],
+};
 
-const kaki: GoogleDocUpdateRequest<'i'> = {};
+export type GoogleDocs_UpdateRequest = GoogleDocs_UpdateText | GoogleDocs_UpdateList | GoogleDocs_UpdateTable;

@@ -1,64 +1,31 @@
-import {MissingPermissionException, Module} from '@nu-art/ts-common';
+import {MissingPermissionException, Module, UniqueId} from '@nu-art/ts-common';
 import {GoogleAuth, OAuth2Client} from 'google-auth-library';
-import {docs_v1, drive_v3, google} from 'googleapis';
+import {docs_v1, google} from 'googleapis';
 import {Key_GoogleDocsServiceAccount} from './consts';
 import {ModuleBE_Auth} from '@nu-art/google-services/backend';
 import {ModuleBE_SecretManager} from '@nu-art/google-services/backend/modules/ModuleBE_SecretManager';
 import {Storm} from '../../core/Storm';
-import {GoogleDocUpdateRequest} from './types';
+import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
 
 type Config = {
 	scopes: string[],
 	secretName: string
 }
 
-const textList = [
-	'kaki',
-	'maki',
-	'paki'
-];
-
 class ModuleBE_GoogleDocs_Class
 	extends Module<Config> {
 
-	private googleDrive!: drive_v3.Drive;
-	private googleDocs!: docs_v1.Docs;
-
-	constructor() {
-		super('ModuleBE_GoogleDocs');
-	}
+	// @ts-ignore
+	private googleDocs: docs_v1.Docs;
 
 	//######################### Setup #########################
 
-	protected async init() {
-		super.init();
-		const authClient = await this.getGoogleAuthClient();
-		this.googleDrive = google.drive({version: 'v3', auth: authClient});
-		this.googleDocs = google.docs({version: 'v1', auth: authClient});
+	constructor() {
+		super('ModuleBE_GoogleDocs');
 
-		await this.updateDocumentById('1_za5MZLbKvfXzg_8IZElTTEF2bnx_kwd4owuslbWemo', [
-			{
-				replaceAllText: {
-					containsText: {text: `{{ani param}}`, matchCase: true},
-					replaceText: 'ani hamachlif shel haparam',
-				}
-			},
-			{
-				insertText: {
-					location: {index: 1},
-					text: textList.join('\n')
-				}
-			},
-			{
-				createParagraphBullets: {
-					range: {
-						startIndex: 1,
-						endIndex: textList.join('\n').length + 1,
-					},
-					bulletPreset: 'BULLET_DISC_CIRCLE_SQUARE',
-				},
-			}
-		]);
+		this.getGoogleAuthClient().then(authClient => {
+			this.googleDocs = google.docs({version: 'v1', auth: authClient});
+		});
 	}
 
 	private getGoogleAuthClient = async (): Promise<OAuth2Client> => {
@@ -90,21 +57,73 @@ class ModuleBE_GoogleDocs_Class
 
 	//######################### Internal Logic #########################
 
-	private resolveFileById = async (id: string) => {
-		return this.googleDocs.documents.get({documentId: id});
+	// @ts-ignore
+	private findPlaceholder(documentContent: docs_v1.Schema$Document, placeholder: string): {
+		startIndex: number;
+		endIndex: number
+	} | null {
+		// Ensure body and content exist, return null if not
+		const content = documentContent.body?.content ?? [];
+
+		for (const element of content) {
+			const paragraph = element.paragraph;
+			const paragraphStartIndex = element.startIndex;
+
+			if (paragraph) {
+				const elements = paragraph.elements ?? [];
+				for (const paragraphElement of elements) {
+					const textRun = paragraphElement.textRun;
+
+					if (textRun?.content?.includes(placeholder)) {
+						const startIndex = paragraphStartIndex as number;
+						const endIndex = startIndex + textRun.content.length;
+
+						return {startIndex, endIndex};
+					}
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Resolve the google document body from the google docs app using the doc id
+	 * @param docId The google document id to query.
+	 */
+	private resolveDocument = async (docId: UniqueId): Promise<docs_v1.Schema$Document> => {
+		try {
+			const getDocumentResponse = await this.googleDocs.documents.get({documentId: docId});
+			return getDocumentResponse.data;
+		} catch (err: any) {
+			throw this.handleError(err);
+		}
+	};
+
+	/**
+	 * Default error handler that formats and throw errors in thunderstorm controlled format
+	 * @param error The error object to resolve the type from
+	 */
+	private handleError = (error: any) => {
+		switch (error.response.status) {
+			case HttpCodes._4XX.NOT_FOUND.code:
+				return HttpCodes._4XX.NOT_FOUND('Document not found in google docs');
+			case HttpCodes._4XX.FORBIDDEN.code:
+				return HttpCodes._4XX.FORBIDDEN('Insufficient permission');
+			default:
+				return HttpCodes._5XX.INTERNAL_SERVER_ERROR('Error occurred when trying to update google doc');
+		}
+	};
+
+	//######################### Public Logic #########################
+
+	public updateDocumentContent = async (docId: UniqueId): Promise<void> => {
+		const documentBody: docs_v1.Schema$Document = await this.resolveDocument(docId);
+
 	};
 
 	//######################### Document Manipulation #########################
 
-	//TODO: Implement
-	public updateDocumentById = async (id: string, requests: GoogleDocUpdateRequest[]) => {
-		return this.googleDocs.documents.batchUpdate({
-			requestBody: {
-				requests: requests
-			},
-			documentId: id
-		});
-	};
 }
 
 export const ModuleBE_GoogleDocs = new ModuleBE_GoogleDocs_Class();
