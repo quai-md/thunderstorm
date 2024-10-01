@@ -1,4 +1,4 @@
-import {_keys, MissingPermissionException, Module, TypedMap, UniqueId} from '@nu-art/ts-common';
+import {MissingPermissionException, Module, TypedMap, UniqueId} from '@nu-art/ts-common';
 import {CredentialBody, GoogleAuth, OAuth2Client} from 'google-auth-library';
 import {docs_v1, google} from 'googleapis';
 import {ModuleBE_Auth} from '@nu-art/google-services/backend';
@@ -6,7 +6,7 @@ import {ModuleBE_SecretManager} from '@nu-art/google-services/backend/modules/Mo
 import {Storm} from '../../core/Storm';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
 import {
-	GoogleDocs_ParamRange,
+	GoogleDocs_ParamRange, GoogleDocs_UpdateList,
 	GoogleDocs_UpdateRequest,
 	Key_GoogleDocsServiceAccount,
 	UpdateType_List,
@@ -149,43 +149,57 @@ export class ModuleBE_GoogleDocs_Class
 	 * @param documentId  The document id to update
 	 * @param updates The updates mapped by parameters of the template
 	 */
-	public updateDocumentContent = async (documentId: UniqueId, updates: TypedMap<GoogleDocs_UpdateRequest>): Promise<docs_v1.Schema$BatchUpdateDocumentResponse> => {
+	public updateDocumentContent = async (documentId: UniqueId, updates: TypedMap<GoogleDocs_UpdateRequest>): Promise<void> => {
 		try {
-			const googleDoc: docs_v1.Schema$Document = await this.resolveDocument(documentId);
-			const requests: docs_v1.Schema$Request[] = [];
+			let googleDoc: docs_v1.Schema$Document = await this.resolveDocument(documentId);
+			let requests: docs_v1.Schema$Request[] = [];
 
-			_keys(updates).forEach(param => {
+			for (const param in updates) {
 				const update = updates[param];
-				const parameterString = `{{${param}}`;
+				const parameterString = `{{${param}}}`;
 				const placeholderLocation = this.findPlaceholder(googleDoc, parameterString);
 
 				if (!placeholderLocation) {
-					return this.logWarning(`cannot find param ${parameterString} in the document`);
+					this.logWarning(`cannot find param ${parameterString} in the document`);
+					continue;
 				}
 
-				this.logError(placeholderLocation)
 				switch (update.type) {
 					case UpdateType_Text:
 						requests.push(this.replaceTextRequest(param as string, update.content));
 						break;
 					case UpdateType_List:
-						requests.push(...this.replaceListRequest(placeholderLocation, update.items));
+						requests.push(this.deletePlaceholderRequest(placeholderLocation.startIndex, placeholderLocation.endIndex), ...this.replaceListRequest(placeholderLocation, update.items));
 						break;
 					case UpdateType_Table:
-						requests.push(...this.replaceTableRequest(placeholderLocation, update.headers, update.rows));
+						requests.push(this.deletePlaceholderRequest(placeholderLocation.startIndex, placeholderLocation.endIndex), ...this.replaceTableRequest(placeholderLocation, update.headers, update.rows));
 				}
-			});
 
-			return (await this.googleDocs.documents.batchUpdate({
-				requestBody: {requests: requests},
-				documentId: documentId
-			})).data;
+				await this.googleDocs.documents.batchUpdate({
+					requestBody: {requests: requests},
+					documentId: documentId
+				});
+
+				googleDoc = await this.resolveDocument(documentId);
+				requests = [];
+			}
 		} catch (err: any) {
 			throw this.handleError(err);
 		}
 	};
 
 	//######################### Document Manipulation #########################
+
+	private deletePlaceholderRequest(startIndex: number, endIndex: number): object {
+		return {
+			deleteContentRange: {
+				range: {
+					startIndex,
+					endIndex,
+				},
+			},
+		};
+	}
 
 	/**
 	 * Generate a request to replace text in a placeholder.
@@ -203,36 +217,43 @@ export class ModuleBE_GoogleDocs_Class
 	/**
 	 * Generate Google Docs requests to insert a list at the placeholder location.
 	 */
-	private replaceListRequest = (location: GoogleDocs_ParamRange, items: string[]) => {
+	private replaceListRequest = (location: GoogleDocs_ParamRange, items: GoogleDocs_UpdateList['items'], level: number = 0) => {
 		const requests: docs_v1.Schema$Request[] = [];
 
-		// Delete the placeholder first
-		requests.push({
-			deleteContentRange: {
-				range: {
-					startIndex: location.startIndex,
-					endIndex: location.endIndex,
-				},
-			},
-		});
-
 		// Insert the list items
+		let startIndex = location.startIndex;
 		items.forEach((item, index) => {
-			requests.push({
-				insertText: {
-					text: item + '\n',
-					location: {index: location.startIndex + index},
-				},
-			});
-			requests.push({
-				createParagraphBullets: {
-					range: {
-						startIndex: location.startIndex + index,
-						endIndex: location.startIndex + index + item.length,
+			if (typeof item === 'string') {
+				// Handle simple list item
+				if (index) startIndex += item.length;
+
+				requests.push({
+					insertText: {
+						text: item + '\n',
+						location: {index: startIndex + index},
 					},
-					bulletPreset: 'BULLET_DISC_CIRCLE_SQUARE',
-				},
-			});
+				});
+
+				requests.push({
+					createParagraphBullets: {
+						range: {
+							startIndex: startIndex + index,
+							endIndex: startIndex + item.length,
+						},
+						bulletPreset: level === 0 ? 'BULLET_DISC_CIRCLE_SQUARE' : level === 1 ? 'BULLET_ARROW_DIAMOND_DISC' : 'BULLET_CHECKBOX',
+					},
+				});
+			} else if (Array.isArray(item)) {
+
+				// Handle nested list (recursively call the function for sub-lists)
+				requests.push(
+					...this.replaceListRequest(
+						{startIndex: startIndex + index + 1, endIndex: location.endIndex}, // Move index for sub-lists
+						item,
+						level + 1 // Increase nesting level
+					)
+				);
+			}
 		});
 
 		return requests;

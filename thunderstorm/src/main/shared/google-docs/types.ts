@@ -5,9 +5,14 @@ export type GoogleDocs_UpdateText = {
 };
 
 export const UpdateType_List = 'list';
+
 export type GoogleDocs_UpdateList = {
 	type: typeof UpdateType_List,
-	items: string[],
+	items: (string | GoogleDocs_UpdateList_Nested)[], // Support nested lists
+};
+
+export type GoogleDocs_UpdateList_Nested = {
+	items: (string | GoogleDocs_UpdateList_Nested)[], // Nested list items (recursive up to 3 levels)
 };
 
 export const UpdateType_Table = 'table';
