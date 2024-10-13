@@ -68,17 +68,25 @@ export class HttpServer_Class
 
 	private static readonly expressMiddleware: ExpressRequestHandler[] = [];
 	errorMessageComposer: HttpErrorHandler = DefaultApiErrorMessageComposer();
-	readonly express: Express;
+	readonly express!: Express;
 	private server!: Server;
 	private socketId: number = 0;
 
 	constructor() {
 		super('http-server');
-		this.express = express();
+		// this.express = express();
+	}
+
+	getExpress():Express {
+		if (this.express)
+			return this.express;
+
+		// @ts-ignore
+		return this.express! = express();
 	}
 
 	getExpressFunction() {
-		return new Firebase_ExpressFunction(HttpServer.express);
+		return new Firebase_ExpressFunction(this.getExpress());
 	}
 
 	setErrorMessageComposer(errorMessageComposer: HttpErrorHandler) {
