@@ -81,6 +81,8 @@ export class HttpServer_Class
 		if (this.express)
 			return this.express;
 
+		// Originally Express was created in the constructor, and this class is a singleton module, meaning Express is created in the import part of the file that starts Storm.
+		// Express now is initialized during the builder of Storm, instead of the import stage of the file.
 		// @ts-ignore
 		return this.express! = express();
 	}
