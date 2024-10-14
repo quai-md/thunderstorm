@@ -1,4 +1,4 @@
-import {__stringify, Module, RuntimeVersion} from '@nu-art/ts-common';
+import {Module, RuntimeVersion} from '@nu-art/ts-common';
 import {createQueryServerApi} from '../core/typed-api';
 import {addRoutes} from './ModuleBE_APIs';
 import {Storm} from '../core/Storm';
@@ -30,14 +30,7 @@ export class ModuleBE_ServerInfo_Class
 		});
 
 		addRoutes([
-			createQueryServerApi(ApiDef_ServerInfo.v1.getServerInfo, async () => {
-				this.logError(`Jenkins params: ${__stringify({
-					useOTel: process.env['USE_OTEL'],
-					groovyScriptBranch: process.env['GROOVY_SCRIPT_BRANCH'],
-					all: __stringify(process.env)
-				})}`);
-				return this.config;
-			}),
+			createQueryServerApi(ApiDef_ServerInfo.v1.getServerInfo, async () => this.config),
 			createQueryServerApi(ApiDef_ServerInfo.v1.updateServerInfo, async () => this.writeServerInfo())
 		]);
 
