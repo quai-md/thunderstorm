@@ -1,7 +1,7 @@
 import {ApiDefResolver, HttpMethod, QueryApi} from '../types';
 
 
-export type Response_ServerInfo = {
+export type Response_ServerInfo =any& {
 	version?: string
 	environment?: string,
 	bucketName?: string

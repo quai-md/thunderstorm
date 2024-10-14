@@ -30,7 +30,15 @@ export class ModuleBE_ServerInfo_Class
 		});
 
 		addRoutes([
-			createQueryServerApi(ApiDef_ServerInfo.v1.getServerInfo, async () => this.config),
+			createQueryServerApi(ApiDef_ServerInfo.v1.getServerInfo, async () => async () => {
+				return {
+					...this.config,
+					...{
+						useOTel: process.env['USE_OTEL'],
+						groovyScriptBranch: process.env['GROOVY_SCRIPT_BRANCH']
+					}
+				};
+			}),
 			createQueryServerApi(ApiDef_ServerInfo.v1.updateServerInfo, async () => this.writeServerInfo())
 		]);
 
