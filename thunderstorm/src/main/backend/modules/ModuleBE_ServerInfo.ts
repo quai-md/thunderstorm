@@ -33,7 +33,8 @@ export class ModuleBE_ServerInfo_Class
 			createQueryServerApi(ApiDef_ServerInfo.v1.getServerInfo, async () => {
 				this.logError(`Jenkins params: ${__stringify({
 					useOTel: process.env['USE_OTEL'],
-					groovyScriptBranch: process.env['GROOVY_SCRIPT_BRANCH']
+					groovyScriptBranch: process.env['GROOVY_SCRIPT_BRANCH'],
+					all: __stringify(process.env)
 				})}`);
 				return this.config;
 			}),
