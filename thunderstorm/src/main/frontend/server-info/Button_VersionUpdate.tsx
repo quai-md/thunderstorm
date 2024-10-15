@@ -23,8 +23,6 @@ export class Button_VersionUpdate
 			return;
 		}
 
-		// window.location.reload();
-		// window.location.replace(window.location.href);
 		const url = new URL(window.location.href);
 		url.searchParams.set('update', currentTimeMillis() + '');
 		window.location.assign(url.toString());
