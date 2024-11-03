@@ -19,6 +19,8 @@ type State = {
 }
 type Props = {}
 
+const tableHeaders = [{header: 'DbKey'}, {header: 'IDB', widthPx: 200}, {header: 'Cache', widthPx: 200}];
+
 export class ATS_IDBCacheComparison
 	extends ComponentSync<Props, State> {
 
@@ -60,10 +62,10 @@ export class ATS_IDBCacheComparison
 		if (!this.state.collectionDetails)
 			return;
 
-		return <TS_Table header={[{header: 'DbKey'}, {header: 'IDB', widthPx: 200}, {header: 'Cache', widthPx: 200}]}
-						 rows={this.state.collectionDetails}
-						 headerRenderer={header => <div>{capitalizeFirstLetter(header)}</div>}
-						 cellRenderer={(header, item, index) => {
+		return <TS_Table header={tableHeaders}
+																														  rows={this.state.collectionDetails}
+																														  headerRenderer={header => <div>{capitalizeFirstLetter(header)}</div>}
+																														  cellRenderer={(header, item, index) => {
 							 const rowDetails = this.state.collectionDetails[index];
 							 const issue = rowDetails.cacheCount != rowDetails.idbCount;
 							 switch (header) {
