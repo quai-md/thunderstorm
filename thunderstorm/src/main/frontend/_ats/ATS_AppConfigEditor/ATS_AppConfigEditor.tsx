@@ -1,17 +1,19 @@
 import * as React from 'react';
 import {ComponentSync} from '../../core/ComponentSync';
-import {DB_AppConfig, DBProto_AppConfig, ModuleFE_AppConfig} from '../../_entity';
+import {AppConfigKey_FE, DB_AppConfig, ModuleFE_AppConfig} from '../../_entity';
 import {LL_H_C, LL_V_L} from '../../components/Layouts';
 import {AppToolsScreen, TS_AppTools} from '../../components/TS_AppTools';
-import {EditableDBItemV3} from '../../utils/EditableItem';
-import {sortArray} from '@nu-art/ts-common';
+import {__stringify, exists, sortArray} from '@nu-art/ts-common';
 import {_className} from '../../utils/tools';
 import './ATS_AppConfigEditor.scss';
 import {TS_JSONViewer} from '../../components/TS_JSONViewer/TS_JSONViewer';
+import {TS_TextArea} from '../../components/TS_Input';
+import {TS_BusyButton} from '../../components/TS_BusyButton';
 
 type State = {
 	configs: DB_AppConfig[];
-	editable?: EditableDBItemV3<DBProto_AppConfig>;
+	selectedKey?: string;
+	dataString?: string;
 }
 
 export class ATS_AppConfigEditor
@@ -31,19 +33,41 @@ export class ATS_AppConfigEditor
 
 	protected deriveStateFromProps(nextProps: {}, state: State) {
 		const allConfigs = ModuleFE_AppConfig.cache.allMutable();
-		state.configs = sortArray(allConfigs, config => config.key);
-		state.editable ??= this.getEditableConfig(state.configs[0]);
+		state.configs ??= sortArray(allConfigs, config => config.key);
+		if (!state.selectedKey && state.configs.length) {
+			const configKey = new AppConfigKey_FE(state.configs[0].key);
+			state.selectedKey ??= configKey.key;
+			state.dataString = this.resolveDataString(configKey.get());
+		}
 		return state;
 	}
 
 	//######################### Logic #########################
 
-	private getEditableConfig(config?: DB_AppConfig): EditableDBItemV3<DBProto_AppConfig> | undefined {
-		if (!config)
+	private getConfigKey(key?: string) {
+		if (!key)
 			return;
 
-		return new EditableDBItemV3<DBProto_AppConfig>(config, ModuleFE_AppConfig).setOnSaveCompleted(() => this.forceUpdate());
+		return new AppConfigKey_FE(key);
 	}
+
+	private resolveDataString(data: any) {
+		return __stringify({data: data}, true);
+	}
+
+	private selectConfig = (config: DB_AppConfig) => {
+		const configKey = this.getConfigKey(config.key);
+		const dataString = this.resolveDataString(config.data);
+		this.setState({selectedKey: configKey?.key, dataString});
+	};
+
+	private saveData = async (data: { data: any }) => {
+		const selectedKey = this.state.selectedKey;
+		if (!selectedKey)
+			return;
+		const configKey = new AppConfigKey_FE(selectedKey);
+		await configKey.set(data.data);
+	};
 
 	//######################### Render #########################
 
@@ -58,14 +82,14 @@ export class ATS_AppConfigEditor
 	}
 
 	private render_AppConfigList = () => {
-		const selectedId = this.state.editable?.item._id;
+		const selectedKey = this.state.selectedKey;
 		return <LL_V_L className={'app-config-editor__config-list'}>
 			{this.state.configs.map(config => {
-				const className = _className('app-config-editor__config-list__config', config._id === selectedId && 'selected');
+				const className = _className('app-config-editor__config-list__config', config.key === selectedKey && 'selected');
 				return <div
 					key={config._id}
 					className={className}
-					onClick={() => this.setState({editable: this.getEditableConfig(config)})}
+					onClick={() => this.selectConfig(config)}
 				>{config.key}</div>;
 			})}
 		</LL_V_L>;
@@ -74,20 +98,38 @@ export class ATS_AppConfigEditor
 	//######################### Render - Editor #########################
 
 	private render_Editor = () => {
-		const editable = this.state.editable;
-		if (!editable)
+		const selectedKey = this.state.selectedKey;
+		const config = this.state.configs.find(config => config.key === selectedKey);
+		if (!config)
 			return;
 
 		return <LL_V_L className={'app-config-editor__editor'}>
-			<div className={'app-config-editor__editor__title'}>{editable.item.key}</div>
+			<div className={'app-config-editor__editor__title'}>{config.key}</div>
 			<LL_H_C className={'app-config-editor__editor__views'}>
-				<TS_JSONViewer item={editable.item}/>
+				<TS_JSONViewer item={config}/>
 				{this.render_Editor_DataEditor()}
 			</LL_H_C>
 		</LL_V_L>;
 	};
 
 	private render_Editor_DataEditor = () => {
-		return <></>;
+		const dataString = this.state.dataString;
+		let dataObject: Object | undefined = undefined;
+		let error: SyntaxError | undefined = undefined;
+		if (!dataString)
+			return;
+
+		try {
+			dataObject = JSON.parse(dataString);
+		} catch (e: any) {
+			error = e as SyntaxError;
+		}
+
+		return <LL_V_L className={'app-config-editor__editors'}>
+			<TS_TextArea type={'text'} value={dataString} onChange={value => this.setState({dataString: value})}/>
+			{exists(dataObject) && <TS_JSONViewer item={dataObject}/>}
+			{exists(error) && <p className={'app-config-editor__error'}>{error.message}</p>}
+			<TS_BusyButton disabled={exists(error)} onClick={() => this.saveData(dataObject as { data: any })}>Save Data</TS_BusyButton>
+		</LL_V_L>;
 	};
 }

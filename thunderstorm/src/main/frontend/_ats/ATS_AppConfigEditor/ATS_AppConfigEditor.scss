@@ -68,9 +68,49 @@
         height: 0;
         flex-grow: 1;
         width: 100%;
+        gap: 20px;
 
         .ts-json-viewer {
-          width: 40%;
+          width: 0;
+          flex-grow: 1;
+        }
+
+        .app-config-editor__editors {
+          height: 100%;
+          width: 0;
+          flex-grow: 1;
+          gap: 20px;
+
+          .ts-textarea {
+            height: 0;
+            width: 100%;
+            flex: 1;
+            resize: none;
+          }
+
+          .ts-json-viewer {
+            height: 0;
+            width: 100%;
+            flex: 1;
+          }
+
+          .app-config-editor__error {
+            height: 0;
+            width: 100%;
+            flex: 1;
+            background: white;
+            border: 2px solid black;
+            border-radius: 10px;
+            margin: 0;
+            padding: 10px;
+          }
+
+          .ts-busy-button {
+            height: 40px;
+            flex-shrink: 0;
+            width: 100%;
+            margin: 0;
+          }
         }
       }
     }

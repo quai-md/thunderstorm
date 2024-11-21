@@ -84,7 +84,6 @@ export class TS_JSONViewer
 	};
 
 	private renderTreeExpandIcon = (props: NodeRendererProps<TS_JSONViewer_Tree['nodeType']>) => {
-		this.logInfo('Rendering icon for item', props.item);
 		if (typeof props.item.item.value !== 'object')
 			return <div className={'ts-json-viewer__icon-placeholder'}/>;
 
