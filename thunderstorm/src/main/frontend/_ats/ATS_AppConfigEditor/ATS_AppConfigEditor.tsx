@@ -10,6 +10,10 @@ import {TS_JSONViewer} from '../../components/TS_JSONViewer/TS_JSONViewer';
 import {TS_TextArea} from '../../components/TS_Input';
 import {TS_BusyButton} from '../../components/TS_BusyButton';
 
+type Props = {
+	appConfigFilter?: (appConfig: DB_AppConfig) => boolean;
+};
+
 type State = {
 	configs: DB_AppConfig[];
 	selectedKey?: string;
@@ -17,22 +21,24 @@ type State = {
 }
 
 export class ATS_AppConfigEditor
-	extends ComponentSync<{}, State> {
+	extends ComponentSync<Props, State> {
 
 	//######################### Static #########################
 
-	static Screen: AppToolsScreen = {
+	static Screen = (props: Props): AppToolsScreen => ({
 		key: 'app-config-editor',
-		renderer: this,
+		renderer: () => <ATS_AppConfigEditor {...props}/>,
 		name: 'App Config Editor',
 		group: 'Editors',
 		modulesToAwait: [ModuleFE_AppConfig],
-	};
+	});
 
 	//######################### Life Cycle #########################
 
-	protected deriveStateFromProps(nextProps: {}, state: State) {
-		const allConfigs = ModuleFE_AppConfig.cache.allMutable();
+	protected deriveStateFromProps(nextProps: Props, state: State) {
+		const allConfigs = !!nextProps.appConfigFilter
+			? ModuleFE_AppConfig.cache.filter(nextProps.appConfigFilter)
+			: ModuleFE_AppConfig.cache.allMutable();
 		state.configs ??= sortArray(allConfigs, config => config.key);
 		if (!state.selectedKey && state.configs.length) {
 			const configKey = new AppConfigKey_FE(state.configs[0].key);
