@@ -32,7 +32,7 @@ import {
 	MUSTNeverHappenException,
 	reduceToMap,
 	removeFromArrayByIndex,
-	removeItemFromArray,
+	removeItemFromArray, ResolvableContent, resolveContent,
 	RuntimeModules,
 	Second
 } from '@nu-art/ts-common';
@@ -53,12 +53,15 @@ import {
 } from '../../../shared/sync-manager/types';
 import {ThunderDispatcher} from '../../core/thunder-dispatcher';
 import {DataStatus, EventType_Query} from '../../core/db-api-gen/consts';
-import {ModuleFE_FirebaseListener, RefListenerFE} from '@nu-art/firebase/frontend/ModuleFE_FirebaseListener/ModuleFE_FirebaseListener';
+import {
+	ModuleFE_FirebaseListener,
+	RefListenerFE
+} from '@nu-art/firebase/frontend/ModuleFE_FirebaseListener/ModuleFE_FirebaseListener';
 import {DataSnapshot} from 'firebase/database';
 import {QueueV2} from '@nu-art/ts-common/utils/queue-v2';
 import {dispatch_QueryAwaitedModules} from '../../components/AwaitModules/AwaitModules';
 import {ModuleFE_ConnectivityModule, OnConnectivityChange} from '../ModuleFE_ConnectivityModule';
-import {ApiDefCaller, BodyApi, HttpMethod} from '../../../shared/types';
+import {ApiDef, ApiDefCaller, BodyApi, HttpMethod} from '../../../shared/types';
 import {ModuleFE_BaseApi} from '../db-api-gen/ModuleFE_BaseApi';
 import {ModuleSyncType} from '../db-api-gen/types';
 import {BaseHttpRequest} from '../../../shared';
@@ -68,7 +71,7 @@ export interface PermissibleModulesUpdated {
 	__onPermissibleModulesUpdated: () => void;
 }
 
-const Default_SyncManagerNodePath = '/state/ModuleBE_SyncManager/syncData'; // Hardcoded path for now per Adam's request, should be const somewhere.
+export const Default_SyncManagerNodePath = '/state/ModuleBE_SyncManager/syncData'; // Hardcoded path for now per Adam's request, should be const somewhere.
 
 const dispatch_OnPermissibleModulesUpdated = new ThunderDispatcher<PermissibleModulesUpdated, '__onPermissibleModulesUpdated'>('__onPermissibleModulesUpdated');
 
@@ -89,12 +92,18 @@ export class ModuleFE_SyncManager_Class
 
 	// All the modules that a user has permissions to view and with the last updated timestamp of each collection
 	private syncedModules: SyncDbData[] = [];
-	private readonly currentlySyncingModules: { module: ModuleFE_BaseApi<any>, syncId: string, request?: BaseHttpRequest<any> }[] = [];
+	private readonly currentlySyncingModules: {
+		module: ModuleFE_BaseApi<any>,
+		syncId: string,
+		request?: BaseHttpRequest<any>
+	}[] = [];
 	private syncFirebaseListener?: RefListenerFE<SyncDataFirebaseState>;
 	private outOfSyncCollections: Set<string> = new Set<string>();
 	private syncing?: boolean;
 	private pendingSync?: boolean;
 	private cancelledSyncs: string[] = [];
+	private syncManagerNodePath: ResolvableContent<string> = Default_SyncManagerNodePath;
+	private smartSyncBaseUrl: ResolvableContent<string | undefined>;
 
 	private syncDebouncer?: VoidFunction;
 	private syncQueue: QueueV2<NoNeedToSyncModule | DeltaSyncModule | FullSyncModule>;
@@ -163,11 +172,18 @@ export class ModuleFE_SyncManager_Class
 		};
 
 		// implement the smart sync call internal so no one will initiate it from the anywhere in the code, except this module
-		await apiWithBody<BodyApi<Response_SmartSync, Request_SmartSync>>({
+		const ApiDef_SmartSync: ApiDef<any> = {
 			method: HttpMethod.POST,
 			path: 'v3/db-api/smart-sync',
 			timeout: 60 * Second
-		}, this.onSmartSyncCompleted)(request).executeSync();
+		};
+
+		// if the module have a custom base url for this api apply it to the api def keeping the original path
+		const customBaseApi = resolveContent(this.smartSyncBaseUrl);
+		if (customBaseApi)
+			ApiDef_SmartSync.baseUrl = customBaseApi;
+
+		await apiWithBody<BodyApi<Response_SmartSync, Request_SmartSync>>(ApiDef_SmartSync, this.onSmartSyncCompleted)(request).executeSync();
 
 		// //If queue is empty
 		// if (!this.syncQueue.getLength())
@@ -387,18 +403,20 @@ export class ModuleFE_SyncManager_Class
 	// ######################### Listening #########################
 
 	public startListening() {
+		const nodePath = resolveContent(this.syncManagerNodePath);
+
 		if (this.syncFirebaseListener) {
-			this.logWarning(`Trying to start listening on --- ${Default_SyncManagerNodePath} --- but the listener already exists.`);
+			this.logWarning(`Trying to start listening on --- ${nodePath} --- but the listener already exists.`);
 			return;
 		}
 
 		this.syncFirebaseListener = ModuleFE_FirebaseListener
-			.createListener(Default_SyncManagerNodePath)
+			.createListener(nodePath)
 			.startListening(this.onSyncDataChanged);
 	}
 
 	public stopListening() {
-		this.logDebug(`Stop listening on ${Default_SyncManagerNodePath}`);
+		this.logDebug(`Stop listening on ${resolveContent(this.syncManagerNodePath)}`);
 		this.syncFirebaseListener?.stopListening();
 		this.syncFirebaseListener = undefined;
 		delete this.syncDebouncer;
@@ -445,6 +463,12 @@ export class ModuleFE_SyncManager_Class
 		// If there are changes, call sync
 		return await this.debounceSyncImpl();
 	};
+
+	// ######################### setNodeContext #########################
+
+	public setNodeContext = (nodeContextResolver: ResolvableContent<string>) => this.syncManagerNodePath = nodeContextResolver;
+
+	public setSmartSyncBaseUrl = (baseUrlResolver: ResolvableContent<string | undefined>) => this.smartSyncBaseUrl = baseUrlResolver;
 }
 
 export const ModuleFE_SyncManager = new ModuleFE_SyncManager_Class();
