@@ -103,7 +103,7 @@ export class ModuleFE_SyncManager_Class
 	private pendingSync?: boolean;
 	private cancelledSyncs: string[] = [];
 	private syncManagerNodePath: ResolvableContent<string> = Default_SyncManagerNodePath;
-	private smartSyncBaseUrl: ResolvableContent<string | undefined>;
+	private smartSyncApiUrl: ResolvableContent<string | undefined>;
 
 	private syncDebouncer?: VoidFunction;
 	private syncQueue: QueueV2<NoNeedToSyncModule | DeltaSyncModule | FullSyncModule>;
@@ -179,9 +179,9 @@ export class ModuleFE_SyncManager_Class
 		};
 
 		// if the module have a custom base url for this api apply it to the api def keeping the original path
-		const customBaseApi = resolveContent(this.smartSyncBaseUrl);
-		if (customBaseApi)
-			ApiDef_SmartSync.baseUrl = customBaseApi;
+		const customBase = resolveContent(this.smartSyncApiUrl);
+		if (customBase)
+			ApiDef_SmartSync.fullUrl = customBase;
 
 		await apiWithBody<BodyApi<Response_SmartSync, Request_SmartSync>>(ApiDef_SmartSync, this.onSmartSyncCompleted)(request).executeSync();
 
@@ -468,7 +468,7 @@ export class ModuleFE_SyncManager_Class
 
 	public setNodeContext = (nodeContextResolver: ResolvableContent<string>) => this.syncManagerNodePath = nodeContextResolver;
 
-	public setSmartSyncBaseUrl = (baseUrlResolver: ResolvableContent<string | undefined>) => this.smartSyncBaseUrl = baseUrlResolver;
+	public setSmartSyncUrl = (baseUrlResolver: ResolvableContent<string | undefined>) => this.smartSyncApiUrl = baseUrlResolver;
 }
 
 export const ModuleFE_SyncManager = new ModuleFE_SyncManager_Class();
