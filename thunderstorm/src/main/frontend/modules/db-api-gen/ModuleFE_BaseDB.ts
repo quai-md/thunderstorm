@@ -172,7 +172,7 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 
 		// update the collection last updated
 		const lastUpdated = items.reduce((toRet, current) => Math.max(toRet, current.__updated), 0);
-		if (!this.IDB.getLastSync() && lastUpdated !== 0)
+		if (!this.IDB.getLastSync() && lastUpdated !== 0 || lastUpdated)
 			this.IDB.setLastUpdated(lastUpdated);
 
 		this.dispatchMulti(EventType_UpsertAll, items.map(item => item));
@@ -218,7 +218,7 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 
 		// set last updated if needed
 		const lastUpdated = (item as DB_Object).__updated;
-		if (!this.IDB.getLastSync() && lastUpdated !== 0)
+		if (!this.IDB.getLastSync() && lastUpdated !== 0 || lastUpdated)
 			this.IDB.setLastUpdated(lastUpdated);
 
 		this.dispatchSingle(event, item);
