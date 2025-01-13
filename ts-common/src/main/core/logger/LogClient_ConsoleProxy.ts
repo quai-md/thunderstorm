@@ -18,13 +18,14 @@ export abstract class LogClient_ConsoleProxy extends LogClient {
 	private readonly flushLogsDebounced: () => void;
 	private readonly originalConsoleError: any;
 	private activeRequest: boolean;
+	private errorLogTimeout?: NodeJS.Timeout;
 
 	// implement app name in app level classes
 	protected abstract appName: string;
 
 	constructor() {
 		super();
-		this.flushLogsDebounced = debounce(this.flushLogs.bind(this), 2 * Minute, 5 * Minute);
+		this.flushLogsDebounced = debounce(this.flushLogs.bind(this), Minute, 2 * Minute);
 		this.buffers = [];
 		this.activeRequest = false;
 
@@ -59,10 +60,19 @@ export abstract class LogClient_ConsoleProxy extends LogClient {
 
 		this.buffers.push(...logs);
 
-
 		if (this.buffers.length >= this.maxBuffers && !this.activeRequest) {
 			this.flushLogs();
 		} else {
+
+			// trigger flush on error
+			if (level === LogLevel.Error && !this.errorLogTimeout)
+				this.errorLogTimeout = setTimeout(() => {
+					this.errorLogTimeout = undefined;
+
+					if (!this.activeRequest)
+						this.flushLogs();
+				}, 500);
+
 			this.flushLogsDebounced();
 		}
 	}
