@@ -17,6 +17,7 @@ export abstract class LogClient_ConsoleProxy extends LogClient {
 	private readonly maxBuffers: number = 50;
 	private readonly flushLogsDebounced: () => void;
 	private readonly originalConsoleError: any;
+	private activeRequest: boolean;
 
 	// implement app name in app level classes
 	protected abstract appName: string;
@@ -25,6 +26,7 @@ export abstract class LogClient_ConsoleProxy extends LogClient {
 		super();
 		this.flushLogsDebounced = debounce(this.flushLogs.bind(this), 2 * Minute, 5 * Minute);
 		this.buffers = [];
+		this.activeRequest = false;
 
 		// pipe console.error to this log client
 		this.originalConsoleError = console.error;
@@ -58,7 +60,7 @@ export abstract class LogClient_ConsoleProxy extends LogClient {
 		this.buffers.push(...logs);
 
 
-		if (this.buffers.length >= this.maxBuffers) {
+		if (this.buffers.length >= this.maxBuffers && !this.activeRequest) {
 			this.flushLogs();
 		} else {
 			this.flushLogsDebounced();
@@ -66,8 +68,10 @@ export abstract class LogClient_ConsoleProxy extends LogClient {
 	}
 
 	private async flushLogs() {
+		this.activeRequest = true;
 		const logsToSend = this.buffers.splice(0, this.maxBuffers);
 		await this.retrySendLogs(logsToSend);
+		this.activeRequest = false;
 	}
 
 	private async retrySendLogs(logs: LogToStream[], retries: number = 10) {
