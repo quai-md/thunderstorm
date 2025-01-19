@@ -25,6 +25,7 @@
   "dependencies": {
     "@nu-art/ts-common": "$THUNDERSTORM_DEPENDENCY_VERSION",
     "@nu-art/thunderstorm": "$THUNDERSTORM_DEPENDENCY_VERSION",
+    "@nu-art/ts-styles": "$THUNDERSTORM_DEPENDENCY_VERSION",
     "react": "$REACT_PKG_VERSION",
     "react-dom": "$REACT_DOM_PKG_VERSION",
     "react-router-dom": "$REACT_ROUTER_DOM_PKG_VERSION",

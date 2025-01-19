@@ -3,9 +3,23 @@ body.ts-dragging {
 
   .ts-dnd__draggable {
     cursor: grabbing !important;
+
+    &.with-anchor {
+      .ts-dnd__draggable-anchor {
+        cursor: grabbing !important;
+      }
+    }
   }
 }
 
 .ts-dnd__draggable {
   cursor: grab;
+
+  &.with-anchor {
+    cursor: default;
+
+    .ts-dnd__draggable-anchor {
+      cursor: grab;
+    }
+  }
 }

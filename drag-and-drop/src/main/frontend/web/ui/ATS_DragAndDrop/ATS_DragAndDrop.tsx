@@ -1,12 +1,13 @@
 import * as React from 'react';
-import {AppToolsScreen, ComponentSync, LL_H_C, LL_V_L, TS_AppTools} from '@nu-art/thunderstorm/frontend';
-import {DNDTestItemStatuses, DNDTest_DragContext, DNDTest_Item, DNDTest_Item_Status} from './types';
+import {AppToolsScreen, ComponentSync, LL_H_C, LL_V_L, ModuleFE_Thunderstorm, TS_AppTools} from '@nu-art/thunderstorm/frontend';
+import {DNDTest_DragContext, DNDTest_Item, DNDTest_Item_Status, DNDTestItemStatuses} from './types';
 import {StorageKey_DNDTestItems} from './consts';
 import {dndTest_generateItems} from './utils';
 import './ATS_DragAndDrop.scss';
 import {DropZone_Web} from '../DropZone_Web';
 import {Draggable_Web} from '../Draggable_Web';
 import {MUSTNeverHappenException} from '@nu-art/ts-common';
+import {TS_Icons} from '@nu-art/ts-styles';
 
 type State = {
 	items: DNDTest_Item[]
@@ -90,8 +91,9 @@ export class ATS_DragAndDrop
 			contextIdentifier={item.status}
 			className={'ats-dnd-test__item'}
 			item={item}
+			dragAnchor={() => <TS_Icons.menu.component/>}
 		>
-			<div className={'ats-dnd-test__item__id'}>{item.id}</div>
+			<button className={'ats-dnd-test__item__id'} onClick={() => ModuleFE_Thunderstorm.copyToClipboard(item.id)}>{item.id}</button>
 			<div className={'ats-dnd-test__item__label'}>{item.label}</div>
 		</Draggable_Web>;
 	};
