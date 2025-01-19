@@ -27,6 +27,7 @@
       }
 
       .ts-dnd__dropzone {
+        height: 0;
         flex-grow: 1;
         width: 100%;
         border: 2px dashed black;
@@ -36,6 +37,7 @@
         flex-direction: column;
         gap: 10px;
         transition: border-color 300ms linear, background 300ms linear;
+        overflow-y: auto;
 
         &[data-dz-active='true'] {
           border-color: blue;

@@ -1,24 +1,44 @@
 import {ComponentSync} from '@nu-art/thunderstorm/frontend';
 import {DragContext} from '../types';
+import {InferProps, InferState} from '@nu-art/thunderstorm/frontend/utils/types';
+import {Const_DragBrand} from '../../web/modules/consts';
 
-export type DraggableProps<C extends DragContext> = {
+type Draggable_Props_Base<C extends DragContext> = {
 	contextKey: C['key'];
 	contextIdentifier: string | number;
+	item: C['item'];
 }
 
-export abstract class Draggable_Base<C extends DragContext = DragContext, P extends DraggableProps<C> = DraggableProps<C>, S = any>
-	extends ComponentSync<P, S> {
+type Draggable_State_Base = {
+	contextIdentifier: string | number;
+};
+
+export abstract class Draggable_Base<C extends DragContext = DragContext, P = {}, S = {}>
+	extends ComponentSync<P & Draggable_Props_Base<C>, S & Draggable_State_Base> {
+
+	static readonly dragBrand = Const_DragBrand;
 
 	//######################### Life Cycle #########################
 
-	constructor(props: P) {
+	constructor(props: P & Draggable_Props_Base<C>) {
 		super(props);
 		this.contextKey = props.contextKey;
 	}
 
-	//######################### Context Key Logic #########################
+	protected deriveStateFromProps(nextProps: InferProps<this>, state: InferState<this>) {
+		state.contextIdentifier = nextProps.contextIdentifier;
+		return state;
+	}
+
+	//######################### Logic #########################
+
+	public getItem = () => this.props.item;
+
+	//######################### Context Logic #########################
 
 	private readonly contextKey: C['key'];
 
 	public getContextKey = () => this.contextKey;
+
+	public getContextIdentifier = () => this.state.contextIdentifier;
 }

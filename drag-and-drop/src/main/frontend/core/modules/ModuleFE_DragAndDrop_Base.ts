@@ -42,25 +42,32 @@ export abstract class ModuleFE_DragAndDrop_Base
 			const contextKey = draggable?.getContextKey();
 			const dropZones = this.dropZones[contextKey];
 			//Find starting drop zone
-
+			const startingDropZone = dropZones.find(dz => dz.getContextIdentifier() === draggable.getContextIdentifier());
 			//Set a new drag event object
 			this._dragEvent = {
 				draggable,
 				contextKey,
 				dropZones,
+				receiverDropZone: startingDropZone,
 			};
 
 			//Set active state for all drop zones in this event context
 			this._dragEvent?.dropZones.forEach(dropZone => {
 				dropZone.setActive(true);
 			});
+			this._dragEvent?.receiverDropZone?.setInitialReceiver();
 		},
 		end: () => {
+			const event = this._dragEvent;
+			if (!event)
+				return this.logError('Calling end event without an event in progress');
 			//Unset active for all the drop zones in this event context
-			this._dragEvent?.dropZones.forEach(dropZone => {
+			event.dropZones.forEach(dropZone => {
 				dropZone.setActive(false);
 			});
 
+			const item = event.draggable.getItem();
+			event.receiverDropZone?.onItemAdded(item);
 			//Delete the event
 			delete this._dragEvent;
 		},

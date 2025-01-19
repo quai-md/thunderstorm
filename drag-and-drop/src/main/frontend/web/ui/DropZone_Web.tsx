@@ -2,16 +2,25 @@ import * as React from 'react';
 import {ModuleFE_DragAndDrop_Web} from '../modules/ModuleFE_DragAndDrop_Web';
 import {DragContext} from '../../core';
 import {_className} from '@nu-art/thunderstorm/frontend';
-import {DropZoneProps, DropZone_Base} from '../../core/ui/DropZone_Base';
+import {DropZone_Base} from '../../core/ui/DropZone_Base';
+import {Const_DNDContextKey, Const_DNDDZActive, Const_DNDDZReceiver, Const_DragBrand} from '../modules/consts';
+import {InferProps, InferState} from '@nu-art/thunderstorm/frontend/utils/types';
+import {BadImplementationException} from '@nu-art/ts-common';
+import {Draggable_Web} from './Draggable_Web';
 
-type WebDropZoneProps<C extends DragContext> = React.PropsWithChildren<React.HTMLProps<HTMLDivElement>> & DropZoneProps<C>
+type Props = React.HTMLProps<HTMLDivElement> & { children: React.ReactElement[] };
 
-export class DropZone_Web<C extends DragContext, P extends WebDropZoneProps<C> = WebDropZoneProps<C>, S = any>
-	extends DropZone_Base<C, P, S> {
+export class DropZone_Web<C extends DragContext>
+	extends DropZone_Base<C, Props> {
 
 	private dzRef: React.RefObject<HTMLDivElement> = React.createRef();
 
 	//######################### Life Cycle #########################
+
+	shouldComponentUpdate(nextProps: InferProps<DropZone_Base<C>> & Props, nextState: InferState<DropZone_Base<C>>, nextContext: any) {
+		//Component should re-render if the amount of children it has changed
+		return super.shouldComponentUpdate(nextProps, nextState, nextContext) || this.props.children.length !== nextProps.children.length;
+	}
 
 	//######################### Abstract Implementation #########################
 
@@ -29,27 +38,49 @@ export class DropZone_Web<C extends DragContext, P extends WebDropZoneProps<C> =
 			return;
 
 		if (active) {
-			element.setAttribute('data-dz-active', 'true');
+			element.setAttribute(Const_DNDDZActive, 'true');
 			element.addEventListener('mouseenter', this.onMouseEnter);
 			element.addEventListener('mouseleave', this.onMouseLeave);
 		} else {
-			element.removeAttribute('data-dz-active');
-			element.removeAttribute('data-dz-receiver');
+			element.removeAttribute(Const_DNDDZActive);
+			element.removeAttribute(Const_DNDDZReceiver);
 			element.removeEventListener('mouseenter', this.onMouseEnter);
 			element.removeEventListener('mouseleave', this.onMouseLeave);
 		}
 	}
 
+	public setInitialReceiver() {
+		const element = this.getElement();
+		if (!element)
+			return;
+
+		element.setAttribute(Const_DNDDZReceiver, 'true');
+	}
+
 	//######################### Logic #########################
 
-	private getProps = (): React.PropsWithChildren<React.HTMLProps<HTMLDivElement>> => {
+	private getProps = (): Partial<InferProps<DropZone_Web<any>>> => {
 		// eslint-disable-next-line @typescript-eslint/no-unused-vars
-		const {contextKey, ...props} = this.props;
+		const {contextKey, contextIdentifier, onItemAdded, ...props} = this.props;
+		//Validate children
+		props.children.forEach(child => {
+			if (!React.isValidElement(child))
+				throw new BadImplementationException('Component DropZone_Web only accepts ReactElement as a valid child');
+
+			const proto = child.type as typeof Draggable_Web;
+			if (proto.dragBrand !== Const_DragBrand)
+				throw new BadImplementationException('Component DropZone_Web only accepts components expanding on Draggable_Base as valid children');
+		});
 		return {
 			...props,
 			ref: this.dzRef,
 			className: _className('ts-dnd__dropzone', props.className),
-			'data-dz-context-key': this.getContextKey(),
+		};
+	};
+
+	private getDataAttributes = () => {
+		return {
+			[Const_DNDContextKey]: this.getContextKey(),
 		};
 	};
 
@@ -66,7 +97,7 @@ export class DropZone_Web<C extends DragContext, P extends WebDropZoneProps<C> =
 		if (!element)
 			return;
 
-		element.setAttribute('data-dz-receiver', 'true');
+		element.setAttribute(Const_DNDDZReceiver, 'true');
 		ModuleFE_DragAndDrop_Web.dragEvent.setReceiver(this);
 	};
 
@@ -75,13 +106,16 @@ export class DropZone_Web<C extends DragContext, P extends WebDropZoneProps<C> =
 		if (!element)
 			return;
 
-		element.removeAttribute('data-dz-receiver');
+		element.removeAttribute(Const_DNDDZReceiver);
 		ModuleFE_DragAndDrop_Web.dragEvent.clearReceiver();
 	};
 
 	//######################### Render #########################
 
 	render() {
-		return <div {...this.getProps()}/>;
+		return <div
+			{...this.getProps()}
+			{...this.getDataAttributes()}
+		/>;
 	}
 }

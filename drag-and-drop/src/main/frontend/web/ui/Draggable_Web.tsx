@@ -1,29 +1,36 @@
 import * as React from 'react';
 import {DragContext} from '../../core';
-import {DraggableProps, Draggable_Base} from '../../core/ui/Draggable_Base';
+import {Draggable_Base} from '../../core/ui/Draggable_Base';
 import {_className, stopPropagation} from '@nu-art/thunderstorm/frontend';
 import {ModuleFE_DragAndDrop_Web} from '../modules/ModuleFE_DragAndDrop_Web';
 import './Draggable_Web.scss';
+import {Const_DNDContextKey} from '../modules/consts';
 
-type WebDraggableProps<C extends DragContext> = React.PropsWithChildren<React.HTMLProps<HTMLDivElement>> & DraggableProps<C>
+type Props = React.PropsWithChildren<React.HTMLProps<HTMLDivElement>>
 
-export class Draggable_Web<C extends DragContext, P extends WebDraggableProps<C> = WebDraggableProps<C>, S = any>
-	extends Draggable_Base<C, P, S> {
+export class Draggable_Web<C extends DragContext>
+	extends Draggable_Base<C, Props> {
 
-	private draggableRef: React.RefObject<HTMLDivElement> = React.createRef();
 	//The offset between the top-left corner of the element and the grab origin
 	private dragOffset: { x: number; y: number } = {x: 0, y: 0};
+	private draggableRef: React.RefObject<HTMLDivElement> = React.createRef();
 
 	//######################### Logic #########################
 
 	private getProps = (): React.PropsWithChildren<React.HTMLProps<HTMLDivElement>> => {
-		const {contextKey, ...props} = this.props;
+		// eslint-disable-next-line @typescript-eslint/no-unused-vars
+		const {contextKey, contextIdentifier, item, ...props} = this.props;
 		return {
 			...props,
 			ref: this.draggableRef,
 			className: _className('ts-dnd__draggable', props.className),
-			'data-drag-context-key': this.getContextKey(),
 			onMouseDown: this.onDragStart,
+		};
+	};
+
+	private getDataAttributes = () => {
+		return {
+			[Const_DNDContextKey]: this.getContextKey(),
 		};
 	};
 
@@ -87,6 +94,9 @@ export class Draggable_Web<C extends DragContext, P extends WebDraggableProps<C>
 	//######################### Render #########################
 
 	render() {
-		return <div {...this.getProps()}/>;
+		return <div
+			{...this.getProps()}
+			{...this.getDataAttributes()}
+		/>;
 	}
 }
