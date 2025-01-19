@@ -1,5 +1,5 @@
 import {UniqueId} from '@nu-art/ts-common';
-import {DragContext} from '../../_shared';
+import { DragContext } from '../../../core';
 
 export const DNDTestItemStatus_Ready = 'ready';
 export const DNDTestItemStatus_InProgress = 'in-progress';

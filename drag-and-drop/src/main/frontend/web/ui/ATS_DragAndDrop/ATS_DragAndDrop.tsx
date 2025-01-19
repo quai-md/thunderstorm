@@ -1,8 +1,11 @@
 import * as React from 'react';
 import {AppToolsScreen, ComponentSync, LL_H_C, LL_V_L, TS_AppTools} from '@nu-art/thunderstorm/frontend';
-import {DNDTest_Item} from './types';
+import {DNDTestItemStatuses, DNDTest_Item, DNDTest_Item_Status} from './types';
 import {StorageKey_DNDTestItems} from './consts';
 import {dndTest_generateItems} from './utils';
+import './ATS_DragAndDrop.scss';
+import {DropZone_Web} from '../DropZone_Web';
+import {Draggable_Web} from '../Draggable_Web';
 
 type State = {
 	items: DNDTest_Item[]
@@ -41,7 +44,24 @@ export class ATS_DragAndDrop
 
 	private render_Stage = () => {
 		return <LL_H_C className={'ats-dnd-test__stage'}>
-
+			{DNDTestItemStatuses.map(this.renderStatusDropZone)}
 		</LL_H_C>;
+	};
+
+	private renderStatusDropZone = (status: DNDTest_Item_Status) => {
+		const items = this.state.items.filter(item => item.status === status);
+		return <LL_V_L className={'ats-dnd-test__status-board'} key={status}>
+			<div className={'ats-dnd-test__status-board-title'}>{status}</div>
+			<DropZone_Web contextKey={'test'}>
+				{items.map(this.renderItem)}
+			</DropZone_Web>
+		</LL_V_L>;
+	};
+
+	private renderItem = (item: DNDTest_Item) => {
+		return <Draggable_Web contextKey={'test'} className={'ats-dnd-test__item'} key={item.id}>
+			<div className={'ats-dnd-test__item__id'}>{item.id}</div>
+			<div className={'ats-dnd-test__item__label'}>{item.label}</div>
+		</Draggable_Web>;
 	};
 }

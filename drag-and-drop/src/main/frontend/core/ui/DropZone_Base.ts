@@ -1,9 +1,13 @@
 import {ComponentSync} from '@nu-art/thunderstorm/frontend';
-import {DragContext} from '../../_shared';
+import {DragContext} from '../types';
+import {InferProps, InferState} from '@nu-art/thunderstorm/frontend/utils/types';
 
-export type DropZoneProps<C extends DragContext> = { contextKey: C['key'] }
+export type DropZoneProps<C extends DragContext> = {
+	contextKey: C['key'];
+	contextIdentifier: string | number;
+}
 
-export abstract class BaseDropZone<C extends DragContext = DragContext, P extends DropZoneProps<C> = DropZoneProps<C>, S = any>
+export abstract class DropZone_Base<C extends DragContext = DragContext, P extends DropZoneProps<C> = DropZoneProps<C>, S = any>
 	extends ComponentSync<P, S> {
 
 	//######################### Life Cycle #########################
@@ -11,6 +15,10 @@ export abstract class BaseDropZone<C extends DragContext = DragContext, P extend
 	constructor(props: P) {
 		super(props);
 		this.contextKey = props.contextKey;
+	}
+
+	protected deriveStateFromProps(nextProps: InferProps<this>, state: InferState<this>) {
+		return state;
 	}
 
 	componentDidMount() {
@@ -33,4 +41,5 @@ export abstract class BaseDropZone<C extends DragContext = DragContext, P extend
 
 	protected abstract unsubscribeDropZone(): void;
 
+	public abstract setActive(active: boolean): void;
 }

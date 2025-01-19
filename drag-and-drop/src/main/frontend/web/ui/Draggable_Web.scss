@@ -1,0 +1,11 @@
+body.ts-dragging {
+  cursor: grabbing !important;
+
+  .ts-dnd__draggable {
+    cursor: grabbing !important;
+  }
+}
+
+.ts-dnd__draggable {
+  cursor: grab;
+}
