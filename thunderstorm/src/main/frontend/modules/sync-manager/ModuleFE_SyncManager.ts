@@ -103,6 +103,8 @@ export class ModuleFE_SyncManager_Class
 	private cleanIDBOnFullSync: boolean = true;
 	private syncManagerNodePath: ResolvableContent<string> = Default_SyncManagerNodePath;
 	private smartSyncApiUrl: ResolvableContent<string | undefined>;
+	private currentSyncData!: SyncDataFirebaseState;
+	private _smartSyncCompleted?: (currentSyncData: SyncDataFirebaseState) => void | undefined;
 
 	private syncDebouncer?: VoidFunction;
 	private syncQueue: QueueV2<NoNeedToSyncModule | DeltaSyncModule | FullSyncModule>;
@@ -224,6 +226,9 @@ export class ModuleFE_SyncManager_Class
 	 */
 	public onSmartSyncCompleted = async (response: SyncManagerAPI_SmartSync['response']) => {
 		this.logInfo(`onSmartSyncCompleted (${response.modules.length})`, response);
+
+		this._smartSyncCompleted?.(this.currentSyncData);
+
 		const currentSyncedModulesLength = this.syncedModules.length;
 		this.syncedModules = response.modules.map(item => ({dbKey: item.dbKey, lastUpdated: item.lastUpdated}));
 		response.modules.forEach(module => this.syncQueue.addItem(module));
@@ -430,6 +435,8 @@ export class ModuleFE_SyncManager_Class
 		if (!rtdbSyncData)
 			return await this.debounceSyncImpl();
 
+		this.currentSyncData = rtdbSyncData;
+
 		// localSyncData is the data we just collected from the IDB regarding all existing modules.
 		const localSyncData = reduceToMap<SyncDbData, LastUpdated>(this.getLocalSyncData(), data => data.dbKey, data => ({lastUpdated: data.lastUpdated}));
 		(_keys(rtdbSyncData) as string[]).forEach((dbKey) => {
@@ -468,6 +475,8 @@ export class ModuleFE_SyncManager_Class
 	public setNodeContext = (nodeContextResolver: ResolvableContent<string>) => this.syncManagerNodePath = nodeContextResolver;
 
 	public setSmartSyncUrl = (baseUrlResolver: ResolvableContent<string | undefined>) => this.smartSyncApiUrl = baseUrlResolver;
+
+	public setOnSyncCompleted = (smartSyncCompleted: (syncData: SyncDataFirebaseState) => void) => this._smartSyncCompleted = smartSyncCompleted;
 }
 
 export const ModuleFE_SyncManager = new ModuleFE_SyncManager_Class();
