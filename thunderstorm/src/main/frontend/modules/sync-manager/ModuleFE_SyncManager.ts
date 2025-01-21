@@ -104,7 +104,8 @@ export class ModuleFE_SyncManager_Class
 	private syncManagerNodePath: ResolvableContent<string> = Default_SyncManagerNodePath;
 	private smartSyncApiUrl: ResolvableContent<string | undefined>;
 	private currentSyncData!: SyncDataFirebaseState;
-	private _smartSyncCompleted?: (currentSyncData: SyncDataFirebaseState) => void | undefined;
+	private _smartSyncCompleted?: (currentSyncData: SyncDataFirebaseState) => void;
+	private _onSyncDataChanged?: (syncData?: SyncDataFirebaseState) => void;
 
 	private syncDebouncer?: VoidFunction;
 	private syncQueue: QueueV2<NoNeedToSyncModule | DeltaSyncModule | FullSyncModule>;
@@ -432,6 +433,9 @@ export class ModuleFE_SyncManager_Class
 		// remoteSyncData is the data we received from the firebase listener, that just detected a change.
 		const rtdbSyncData = snapshot.val() as SyncDataFirebaseState | undefined;
 
+		// if exists trigger the external callback
+		this._onSyncDataChanged?.(rtdbSyncData);
+
 		if (!rtdbSyncData)
 			return await this.debounceSyncImpl();
 
@@ -477,6 +481,8 @@ export class ModuleFE_SyncManager_Class
 	public setSmartSyncUrl = (baseUrlResolver: ResolvableContent<string | undefined>) => this.smartSyncApiUrl = baseUrlResolver;
 
 	public setOnSyncCompleted = (smartSyncCompleted: (syncData: SyncDataFirebaseState) => void) => this._smartSyncCompleted = smartSyncCompleted;
+
+	public setOnSyncDataChanged = (onSyncDataChanged: (syncData?: SyncDataFirebaseState) => void) => this._onSyncDataChanged = onSyncDataChanged;
 }
 
 export const ModuleFE_SyncManager = new ModuleFE_SyncManager_Class();
