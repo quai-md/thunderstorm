@@ -35,7 +35,7 @@ import {
 	removeItemFromArray,
 	ResolvableContent,
 	resolveContent,
-	RuntimeModules
+	RuntimeModules, Second
 } from '@nu-art/ts-common';
 import {apiWithBody} from '../../core/typed-api';
 import {
@@ -106,6 +106,8 @@ export class ModuleFE_SyncManager_Class
 	private currentSyncData!: SyncDataFirebaseState;
 	private _smartSyncCompleted?: (currentSyncData: SyncDataFirebaseState) => void;
 	private _onSyncDataChanged?: (syncData?: SyncDataFirebaseState) => void;
+	private _debounceTimeout: number = 2 * Second;
+	private _debounceMaxTimeout: number = 10 * Second;
 
 	private syncDebouncer?: VoidFunction;
 	private syncQueue: QueueV2<NoNeedToSyncModule | DeltaSyncModule | FullSyncModule>;
@@ -214,7 +216,7 @@ export class ModuleFE_SyncManager_Class
 			this.logDebug(`Collections out of sync:`, this.outOfSyncCollections);
 			this.outOfSyncCollections.clear();
 			await this.smartSync();
-		}, 2000, 10000);
+		}, this._debounceTimeout, this._debounceMaxTimeout);
 
 		this.logInfo('Performing Immediate Sync');
 		await this.smartSync();
@@ -483,6 +485,10 @@ export class ModuleFE_SyncManager_Class
 	public setOnSyncCompleted = (smartSyncCompleted: (syncData: SyncDataFirebaseState) => void) => this._smartSyncCompleted = smartSyncCompleted;
 
 	public setOnSyncDataChanged = (onSyncDataChanged: (syncData?: SyncDataFirebaseState) => void) => this._onSyncDataChanged = onSyncDataChanged;
+
+	public setDebounceTimeout = (debounceTimeout: number) => this._debounceTimeout = debounceTimeout;
+
+	public setDebounceMaxTimeout = (debounceTimeout: number) => this._debounceMaxTimeout = debounceTimeout;
 }
 
 export const ModuleFE_SyncManager = new ModuleFE_SyncManager_Class();
