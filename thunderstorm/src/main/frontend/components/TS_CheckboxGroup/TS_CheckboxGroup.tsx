@@ -1,14 +1,20 @@
 import * as React from 'react';
-import { ComponentSync } from '../../core/ComponentSync';
-import { _className } from '../../utils/tools';
+import {ComponentSync} from '../../core/ComponentSync';
+import {_className} from '../../utils/tools';
 import './TS_CheckboxGroup.scss';
-import { TS_Checkbox } from '../TS_Checkbox';
+import {TS_Checkbox} from '../TS_Checkbox';
+
+type CheckboxOption = {
+    id: string;
+    label: string;
+    disabled?: boolean;
+}
 
 export type Props_CheckboxGroup = {
     id?: string;
     className?: string;
-    parent: { id: string; label: string };
-    options: { id: string; label: string }[];
+    parent: CheckboxOption;
+    options: CheckboxOption[];
     selectedIds?: string[];
     onChange?: (selectedIds: string[]) => void;
 };
@@ -16,6 +22,8 @@ export type Props_CheckboxGroup = {
 type State_CheckboxGroup = {
     selectedIds: Set<string>;
     allSelected?: boolean;
+    parent: CheckboxOption;
+    options: CheckboxOption[];
     someSelected?: boolean;
     className?: string;
 };
@@ -32,14 +40,15 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
     protected deriveStateFromProps(nextProps: Props_CheckboxGroup, state: State_CheckboxGroup) {
         state.selectedIds = new Set(nextProps.selectedIds || []);
         state.allSelected = nextProps.selectedIds?.length === nextProps.options.length ?? false;
+        state.options = nextProps.options;
+        state.parent = nextProps.parent;
         state.className = nextProps.className;
 
         return state;
     }
 
     private onClickFather = () => {
-        const { options } = this.props;
-        const { allSelected } = this.state;
+        const { options, allSelected } = this.state;
 
         const newSelectedIds = allSelected ? new Set<string>() : new Set(options.map(option => option.id));
         this.setState({ selectedIds: newSelectedIds, allSelected: !allSelected, someSelected: false });
@@ -47,28 +56,25 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
     };
 
     private onClickCheckbox = (id: string) => {
-        const { options } = this.props;
+        const { options } = this.state;
 
         const newSelectedIds = new Set(this.state.selectedIds);
         this.state.selectedIds.has(id) ? newSelectedIds.delete(id) : newSelectedIds.add(id);
-        const allSelected = newSelectedIds.size === this.props.options.length && options.length > 0;
+        const allSelected = newSelectedIds.size === options.length && options.length > 0;
         this.setState({ selectedIds: newSelectedIds, someSelected: newSelectedIds.size > 0 && newSelectedIds.size < options.length, allSelected });
         this.props.onChange?.([...newSelectedIds]);
     };
 
     render() {
-        const { id, className, parent, options } = this.props;
-        const { selectedIds, someSelected, allSelected } = this.state;
-        console.log("selectedIds", selectedIds);
-        console.log("someSelected", someSelected);
-        console.log("allSelected", allSelected);
+        const { selectedIds, someSelected, allSelected, options, parent, className } = this.state;
 
         return (
-            <div className={_className('ts-checkbox-group', className)} id={id}>
+            <div className={_className('ts-checkbox-group', className)} id={this.props.id}>
                 <div className="ts-checkbox-group__parent">
                     <TS_Checkbox
                         checked={allSelected}
                         onCheck={this.onClickFather}
+                        disabled={parent.disabled}
                         className={someSelected ? 'ts-checkbox-group__partial' : undefined}>
                         {parent.label}
                     </TS_Checkbox>
@@ -78,6 +84,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
                         <TS_Checkbox
                             key={option.id}
                             checked={selectedIds.has(option.id)}
+                            disabled={option.disabled}
                             onCheck={() => this.onClickCheckbox(option.id)}
                             className={'ts-checkbox-group__child'}>
                             {option.label}
