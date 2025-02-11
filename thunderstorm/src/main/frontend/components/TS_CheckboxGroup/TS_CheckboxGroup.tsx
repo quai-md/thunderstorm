@@ -43,7 +43,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
         const { allSelected } = this.state;
 
         const newSelectedIds = allSelected ? new Set<string>() : new Set(options.map(option => option.id));
-        this.setState({ selectedIds: newSelectedIds, allSelected: !allSelected });
+        this.setState({ selectedIds: newSelectedIds, allSelected: !allSelected, someSelected: false });
         this.props.onChange?.([...newSelectedIds]);
     };
 
@@ -70,7 +70,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
                     <TS_Checkbox
                         checked={allSelected}
                         onCheck={this.onClickFather}
-                        className={someSelected ? 'ts-checkbox-group__partial' : ''}>
+                        className={someSelected ? 'ts-checkbox-group__partial' : undefined}>
                         {parent.label}
                     </TS_Checkbox>
                 </div>
