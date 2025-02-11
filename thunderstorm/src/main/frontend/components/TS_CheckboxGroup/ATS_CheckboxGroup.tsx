@@ -35,7 +35,6 @@ export class ATS_CheckboxGroup
             {
                 id: '1',
                 label: 'first',
-                disabled: true,
             },
             {
                 id: '2',
@@ -62,7 +61,8 @@ export class ATS_CheckboxGroup
             },
             {
                 id: '3',
-                label: 'third',
+                label: 'another',
+                disabled: true,
             }];
 
         return <TS_CheckboxGroup parent={{id: 'father', label: 'All'}} options={options} />;

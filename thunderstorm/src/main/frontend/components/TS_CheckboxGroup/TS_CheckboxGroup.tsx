@@ -88,8 +88,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
                             key={option.id}
                             checked={selectedIds.has(option.id)}
                             disabled={option.disabled}
-                            onCheck={() => this.onClickCheckbox(option.id)}
-                            className={'ts-checkbox-group__child'}>
+                            onCheck={() => this.onClickCheckbox(option.id)}>
                             {option.label}
                         </TS_Checkbox>
                     ))}
