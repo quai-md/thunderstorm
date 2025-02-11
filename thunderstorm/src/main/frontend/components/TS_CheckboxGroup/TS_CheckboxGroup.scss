@@ -1,0 +1,35 @@
+.ts-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ts-checkbox-group__parent {
+  display: flex;
+  align-items: center;
+  padding-left: 10px;
+}
+
+.ts-checkbox-group__indeterminate .ts-checkbox__button {
+  background-color: transparent;
+  border: 1px solid #555;
+  position: relative;
+}
+
+.ts-checkbox-group__indeterminate .ts-checkbox__button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 2px;
+  background-color: #555;
+  transform: translate(-50%, -50%);
+}
+
+.ts-checkbox-group__children {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
