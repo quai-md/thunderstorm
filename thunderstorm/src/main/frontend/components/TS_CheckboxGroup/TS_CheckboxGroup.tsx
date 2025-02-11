@@ -17,6 +17,7 @@ type State_CheckboxGroup = {
     selectedIds: Set<string>;
     allSelected?: boolean;
     someSelected?: boolean;
+    className?: string;
 };
 
 /**
@@ -26,15 +27,13 @@ type State_CheckboxGroup = {
 export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_CheckboxGroup> {
     constructor(p: Props_CheckboxGroup) {
         super(p);
-        this.state = {
-            selectedIds: new Set(p.selectedIds || []),
-            allSelected: false,
-            someSelected: false
-        };
     }
 
     protected deriveStateFromProps(nextProps: Props_CheckboxGroup, state: State_CheckboxGroup) {
         state.selectedIds = new Set(nextProps.selectedIds || []);
+        state.allSelected = nextProps.selectedIds?.length === nextProps.options.length ?? false;
+        state.className = nextProps.className;
+
         return state;
     }
 
