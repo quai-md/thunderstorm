@@ -42,6 +42,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
     protected deriveStateFromProps(nextProps: Props_CheckboxGroup, state: State_CheckboxGroup) {
         state.selectedIds = new Set(nextProps.selectedIds || []);
         state.allSelected = nextProps.selectedIds?.length === nextProps.options.length ?? false;
+        state.someSelected = !state.allSelected && state.selectedIds.size > 0;
         state.options = nextProps.options;
         if (!state.options.length)
             throw new BadImplementationException('cannot have checkbox group without options');
