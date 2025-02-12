@@ -1,11 +1,8 @@
 .ts-checkbox-group {
-  display: flex;
-  flex-direction: column;
   gap: 6px;
   margin: 30px;
 
   .ts-checkbox-group__parent {
-    display: flex;
     align-items: center;
     padding-left: 10px;
 
@@ -13,6 +10,7 @@
       border: 1px solid #0054F7;
       position: relative;
     }
+
     .ts-checkbox-group__partial .ts-checkbox__button::after {
       content: '';
       position: absolute;
@@ -27,9 +25,7 @@
 
   .ts-checkbox-group__children {
     padding-left: 20px;
-    display: flex;
-    flex-direction: column;
     gap: 4px;
-    border-radius: 50%;
   }
 }
+

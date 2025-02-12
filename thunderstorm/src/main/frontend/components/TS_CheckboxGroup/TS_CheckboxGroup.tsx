@@ -3,6 +3,8 @@ import {ComponentSync} from '../../core/ComponentSync';
 import {_className} from '../../utils/tools';
 import './TS_CheckboxGroup.scss';
 import {TS_Checkbox} from '../TS_Checkbox';
+import { LL_V_L } from '../Layouts';
+import {BadImplementationException} from "@nu-art/ts-common";
 
 type CheckboxOption = {
     id: string;
@@ -41,6 +43,9 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
         state.selectedIds = new Set(nextProps.selectedIds || []);
         state.allSelected = nextProps.selectedIds?.length === nextProps.options.length ?? false;
         state.options = nextProps.options;
+        if (!state.options.length)
+            throw new BadImplementationException('cannot have checkbox group without options');
+        
         state.parent = nextProps.parent;
         state.className = nextProps.className;
 
@@ -81,8 +86,8 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
         const { selectedIds, someSelected, allSelected, options, parent, className } = this.state;
 
         return (
-            <div className={_className('ts-checkbox-group', className)} id={this.props.id}>
-                <div className="ts-checkbox-group__parent">
+            <LL_V_L className={_className('ts-checkbox-group', className)} id={this.props.id}>
+                <LL_V_L className="ts-checkbox-group__parent">
                     <TS_Checkbox
                         checked={allSelected}
                         className={someSelected ? 'ts-checkbox-group__partial' : undefined}
@@ -90,8 +95,8 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
                         onCheck={this.onClickFather}>
                         {parent.label}
                     </TS_Checkbox>
-                </div>
-                <div className="ts-checkbox-group__children">
+                </LL_V_L>
+                <LL_V_L className="ts-checkbox-group__children">
                     {options.map(option => (
                         <TS_Checkbox
                             key={option.id}
@@ -101,8 +106,8 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
                             {option.label}
                         </TS_Checkbox>
                     ))}
-                </div>
-            </div>
+                </LL_V_L>
+            </LL_V_L>
         );
     }
 }
