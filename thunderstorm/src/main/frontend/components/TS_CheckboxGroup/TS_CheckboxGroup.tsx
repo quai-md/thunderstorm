@@ -49,14 +49,13 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
 
     private onClickFather = () => {
         const { options, allSelected } = this.state;
-        const optionsLength = options.length;
 
         const selectableOptions = options.filter(option => !option.disabled);
         const newSelectedIds = allSelected ? new Set<string>() : new Set(selectableOptions.map(option => option.id));
 
         this.setState({
             selectedIds: newSelectedIds,
-            allSelected: newSelectedIds.size === optionsLength && optionsLength > 0,
+            allSelected: newSelectedIds.size === options.length,
             someSelected: newSelectedIds.size > 0 && !allSelected
         });
         this.props.onChange?.([...newSelectedIds]);
@@ -68,7 +67,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
         const newSelectedIds = new Set(this.state.selectedIds);
         this.state.selectedIds.has(id) ? newSelectedIds.delete(id) : newSelectedIds.add(id);
 
-        const allSelected = newSelectedIds.size === options.length && options.length > 0;
+        const allSelected = newSelectedIds.size === options.length;
         this.setState({
             selectedIds: newSelectedIds,
             someSelected: newSelectedIds.size > 0 && newSelectedIds.size < options.length,

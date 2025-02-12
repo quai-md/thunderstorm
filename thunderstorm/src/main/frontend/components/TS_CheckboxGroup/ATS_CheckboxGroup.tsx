@@ -28,6 +28,7 @@ export class ATS_CheckboxGroup
             {this.render_CheckboxGroup()}
             {this.render_PartialDisabledCheckboxGroup()}
             {this.render_DisabledParent()}
+            {this.render_ParentOnlyCheckboxGroup()}
         </LL_V_L>;
     }
 
@@ -71,6 +72,10 @@ export class ATS_CheckboxGroup
             }];
 
         return <TS_CheckboxGroup parent={{id: 'father', label: 'All'}} options={options} />;
+    };
+
+    private render_ParentOnlyCheckboxGroup = () => {
+        return <TS_CheckboxGroup parent={{id: 'father', label: 'All'}} options={[]} />;
     };
 
     private render_DisabledParent = () => {
