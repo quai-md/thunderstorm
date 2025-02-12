@@ -45,7 +45,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
         state.options = nextProps.options;
         if (!state.options.length)
             throw new BadImplementationException('cannot have checkbox group without options');
-        
+
         state.parent = nextProps.parent;
         state.className = nextProps.className;
 
@@ -87,7 +87,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
 
         return (
             <LL_V_L className={_className('ts-checkbox-group', className)} id={this.props.id}>
-                <LL_V_L className="ts-checkbox-group__parent">
+                <LL_V_L className={'ts-checkbox-group__parent'}>
                     <TS_Checkbox
                         checked={allSelected}
                         className={someSelected ? 'ts-checkbox-group__partial' : undefined}
@@ -96,7 +96,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
                         {parent.label}
                     </TS_Checkbox>
                 </LL_V_L>
-                <LL_V_L className="ts-checkbox-group__children">
+                <LL_V_L className={'ts-checkbox-group__children'}>
                     {options.map(option => (
                         <TS_Checkbox
                             key={option.id}
