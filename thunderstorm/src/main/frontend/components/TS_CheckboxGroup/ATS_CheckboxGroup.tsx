@@ -27,6 +27,7 @@ export class ATS_CheckboxGroup
             {TS_AppTools.renderPageHeader('Checkbox Group')}
             {this.render_CheckboxGroup()}
             {this.render_PartialDisabledCheckboxGroup()}
+            {this.render_DisabledParent()}
         </LL_V_L>;
     }
 
@@ -57,14 +58,36 @@ export class ATS_CheckboxGroup
             },
             {
                 id: '2',
-                label: 'second',
+                label: 'Not Disabled',
             },
             {
                 id: '3',
-                label: 'another',
+                label: 'Disabled 2',
                 disabled: true,
+            },
+            {
+                id: '4',
+                label: 'Not Disabled 2',
             }];
 
         return <TS_CheckboxGroup parent={{id: 'father', label: 'All'}} options={options} />;
+    };
+
+    private render_DisabledParent = () => {
+        const options = [
+            {
+                id: '1',
+                label: 'Not Disabled 1',
+            },
+            {
+                id: '2',
+                label: 'Not Disabled 2',
+            },
+            {
+                id: '3',
+                label: 'Not Disabled 3',
+            }];
+
+        return <TS_CheckboxGroup parent={{id: 'father', label: 'Disabled Father', disabled: true}} options={options} />;
     };
 }
