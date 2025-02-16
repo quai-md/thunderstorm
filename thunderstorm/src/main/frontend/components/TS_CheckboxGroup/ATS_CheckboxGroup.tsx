@@ -26,7 +26,7 @@ export class ATS_CheckboxGroup
 
     protected deriveStateFromProps(nextProps: Props, state: State) {
         state.selectedIdsGroup ??= [];
-        state.selectedIdsSomeDisabled ??= [];
+        state.selectedIdsSomeDisabled ??= ['3'];
 
         return state;
     }
@@ -84,7 +84,7 @@ export class ATS_CheckboxGroup
             },
             {
                 id: '3',
-                label: 'Disabled 2',
+                label: 'Disabled Selected',
                 disabled: true,
             },
             {

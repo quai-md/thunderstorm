@@ -76,6 +76,7 @@ export class TS_CheckboxGroup extends ComponentSync<Props_CheckboxGroup, State_C
         return (
             <LL_V_L className={_className('ts-checkbox-group', className)} id={this.props.id}>
                 <TS_Checkbox
+                    key={parent.id}
                     checked={allSelected}
                     className={_className('ts-checkbox-group__parent', someSelected && 'ts-checkbox-group__partial')}
                     disabled={parent.disabled}
