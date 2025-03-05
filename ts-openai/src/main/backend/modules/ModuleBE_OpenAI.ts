@@ -1,10 +1,4 @@
-import {
-	__stringify,
-	BadImplementationException,
-	Module,
-	ThisShouldNotHappenException,
-	TypedMap
-} from '@nu-art/ts-common';
+import {__stringify, BadImplementationException, Module, sortArray, ThisShouldNotHappenException, TypedMap} from '@nu-art/ts-common';
 
 import {OpenAI} from 'openai';
 import {addRoutes, createBodyServerApi} from '@nu-art/thunderstorm/backend';
@@ -12,16 +6,16 @@ import {ApiDef_OpenAI, Request_ChatGPT} from '../../shared/api-def';
 import fs from 'fs';
 
 type GPT_Model = 'gpt-4'
-	| 'gpt-4-0314'
-	| 'gpt-4-0613'
-	| 'gpt-4-32k'
-	| 'gpt-4-32k-0314'
-	| 'gpt-4-32k-0613'
-	| 'gpt-3.5-turbo'
-	| 'gpt-3.5-turbo-16k'
-	| 'gpt-3.5-turbo-0301'
-	| 'gpt-3.5-turbo-0613'
-	| 'gpt-3.5-turbo-16k-0613'
+								 | 'gpt-4-0314'
+								 | 'gpt-4-0613'
+								 | 'gpt-4-32k'
+								 | 'gpt-4-32k-0314'
+								 | 'gpt-4-32k-0613'
+								 | 'gpt-3.5-turbo'
+								 | 'gpt-3.5-turbo-16k'
+								 | 'gpt-3.5-turbo-0301'
+								 | 'gpt-3.5-turbo-0613'
+								 | 'gpt-3.5-turbo-16k-0613'
 
 type Config = {
 	directives: TypedMap<{
@@ -147,35 +141,44 @@ export class ModuleBE_OpenAI_Class
 	 * Sends a query to OpenAI's Assistant with a directive, message, and optional file ID.
 	 */
 	queryWithAssistant = async (query: Request_QueryWithAssistant) => {
-
-		// Add user message
+		// Add user message with tool attachment (if applicable)
 		await this.openai.beta.threads.messages.create(query.threadId, {
 			role: 'user',
 			content: query.userMessage,
 			attachments: query.fileId ? [{file_id: query.fileId, tools: [{type: 'code_interpreter'}]}] : [],
 		});
 
-		// ✅ Start a run (actually processes the request)
-		const run = await this.openai.beta.threads.runs.create(query.threadId, {
+		// Start the initial run
+		let run = await this.openai.beta.threads.runs.create(query.threadId, {
 			assistant_id: query.assistantId,
 		});
 
-		// ✅ Wait for completion (polling)
-		let runStatus = run.status;
-		while (runStatus === 'queued' || runStatus === 'in_progress'  || runStatus === "requires_action") {
+		// Poll until the initial run completes
+		while (['queued', 'in_progress', 'requires_action'].includes(run.status)) {
 			await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds
-			const updatedRun = await this.openai.beta.threads.runs.retrieve(query.threadId, run.id);
-			runStatus = updatedRun.status;
+			run = await this.openai.beta.threads.runs.retrieve(query.threadId, run.id);
 		}
 
-		// ✅ Get the assistant's response from the thread
-		const messages = await this.openai.beta.threads.messages.list(query.threadId);
-		const assistantMessage = messages.data.filter((msg) => msg.role === 'assistant');
+		// **Check for follow-up runs (caused by tool usage)**
+		const newRuns = await this.openai.beta.threads.runs.list(query.threadId);
+		if (newRuns)
+			this.logWarning('Has new runs');
+		let latestRun = newRuns.data.find((r) => ['queued', 'in_progress'].includes(r.status));
 
-		this.logInfo(runStatus);
-		this.logInfo(assistantMessage);
+		// Wait for any additional runs to complete
+		while (latestRun) {
+			await new Promise((resolve) => setTimeout(resolve, 2000));
+			latestRun = (await this.openai.beta.threads.runs.list(query.threadId)).data.find((r) => ['queued', 'in_progress'].includes(r.status));
+		}
+
+		// Now that all runs are complete, fetch the final response
+		const messages = await this.openai.beta.threads.messages.list(query.threadId);
+		this.logWarning('All messages', messages);
+		const assistantMessages = sortArray(messages.data.filter((msg) => msg.role === 'assistant'), message => message.completed_at, true);
+
+		// Get the latest assistant response
 		// @ts-ignore
-		const responseText = assistantMessage[0]?.content[0]?.text?.value || 'No response received';
+		const responseText = assistantMessages[0]?.content[0]?.text?.value || 'No response received';
 
 		this.logInfo(responseText);
 		return {response: responseText};
