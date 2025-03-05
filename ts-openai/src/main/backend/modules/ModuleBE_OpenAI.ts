@@ -78,7 +78,7 @@ export class ModuleBE_OpenAI_Class
 			messages: [
 				{
 					role: 'system',
-					content: query.directive
+					content: this.config.directives[query.directive]?.directive || query.directive,
 				},
 				{
 					role: 'user',
