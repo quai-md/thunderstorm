@@ -1,9 +1,15 @@
-import {__stringify, BadImplementationException, Module, ThisShouldNotHappenException, TypedMap} from '@nu-art/ts-common';
+import {
+	__stringify,
+	BadImplementationException,
+	Module,
+	ThisShouldNotHappenException,
+	TypedMap
+} from '@nu-art/ts-common';
 
 import {OpenAI} from 'openai';
 import {addRoutes, createBodyServerApi} from '@nu-art/thunderstorm/backend';
 import {ApiDef_OpenAI, Request_ChatGPT} from '../../shared/api-def';
-
+import fs from 'fs';
 
 type GPT_Model = 'gpt-4'
 	| 'gpt-4-0314'
@@ -42,6 +48,17 @@ type Request_PredefiedDirective = {
 	model?: GPT_Model
 };
 
+type Request_UploadFile = {
+	filePath: string,
+}
+
+type Request_QueryWithAssistant = {
+	assistantId: string,
+	threadId: string,
+	userMessage: string,
+	fileId?: string
+}
+
 export class ModuleBE_OpenAI_Class
 	extends Module<Config> {
 
@@ -70,7 +87,11 @@ export class ModuleBE_OpenAI_Class
 		if (!directive)
 			throw new BadImplementationException(`Missing instruction for directive: ${query.directiveKey}`);
 
-		return this.simpleQuery({model: directive.agent ?? query.model, message: query.message, directive: directive.directive});
+		return this.simpleQuery({
+			model: directive.agent ?? query.model,
+			message: query.message,
+			directive: directive.directive
+		});
 	};
 
 	simpleQuery = async (query: Request_ChatGPT) => {
@@ -95,7 +116,70 @@ export class ModuleBE_OpenAI_Class
 
 		return {response: content};
 	};
+
+	createAssistant = async (instructions: string, assistantName: string) => {
+		return this.openai.beta.assistants.create({
+			name: assistantName,
+			instructions: instructions,
+			model: this.config.defaultModel ?? 'gpt-4'
+		});
+	};
+
+	/**
+	 * Uploads a file to OpenAI's Assistants API and returns the file ID.
+	 */
+	uploadFileToAssistant = async (query: Request_UploadFile) => {
+		const file = fs.createReadStream(query.filePath);
+		const fileUpload = await this.openai.files.create({
+			file: file,
+			purpose: 'assistants',
+		});
+
+		this.logInfo(`File uploaded successfully. File ID: ${fileUpload.id}`);
+		return {fileId: fileUpload.id};
+	};
+
+	createAThread = async () => {
+		return (await this.openai.beta.threads.create()).id;
+	};
+
+	/**
+	 * Sends a query to OpenAI's Assistant with a directive, message, and optional file ID.
+	 */
+	queryWithAssistant = async (query: Request_QueryWithAssistant) => {
+
+		// Add user message
+		await this.openai.beta.threads.messages.create(query.threadId, {
+			role: 'user',
+			content: query.userMessage,
+			attachments: query.fileId ? [{file_id: query.fileId, tools: [{type: 'code_interpreter'}]}] : [],
+		});
+
+		// ✅ Start a run (actually processes the request)
+		const run = await this.openai.beta.threads.runs.create(query.threadId, {
+			assistant_id: query.assistantId,
+		});
+
+		// ✅ Wait for completion (polling)
+		let runStatus = run.status;
+		while (runStatus === 'queued' || runStatus === 'in_progress'  || runStatus === "requires_action") {
+			await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds
+			const updatedRun = await this.openai.beta.threads.runs.retrieve(query.threadId, run.id);
+			runStatus = updatedRun.status;
+		}
+
+		// ✅ Get the assistant's response from the thread
+		const messages = await this.openai.beta.threads.messages.list(query.threadId);
+		const assistantMessage = messages.data.filter((msg) => msg.role === 'assistant');
+
+		this.logInfo(runStatus);
+		this.logInfo(assistantMessage);
+		// @ts-ignore
+		const responseText = assistantMessage[0]?.content[0]?.text?.value || 'No response received';
+
+		this.logInfo(responseText);
+		return {response: responseText};
+	};
 }
 
 export const ModuleBE_OpenAI = new ModuleBE_OpenAI_Class();
-
