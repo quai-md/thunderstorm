@@ -1,4 +1,6 @@
-import {Const_UniqueKeys, Day, DBDef_V3, DBProto, Hour} from '@nu-art/ts-common';
+import {Const_UniqueKeys, Day, DBDef_V3, DBProto, Hour, ArrayFilter, RuntimeModules, arrayToMap} from '@nu-art/ts-common';
+import {ModuleBE_BaseDB} from '../modules/db-api-gen/ModuleBE_BaseDB';
+import {DBModuleFilter} from '../../shared';
 
 
 export type DBApiBEConfig<Proto extends DBProto<any>> = {
@@ -20,4 +22,10 @@ export const getModuleBEConfig = <Proto extends DBProto<any, any, any>>(dbDef: D
 		lastUpdatedTTL: dbDef.lastUpdatedTTL || Day,
 	};
 };
+
+export const RuntimeBE_ModulesDB = <T extends ModuleBE_BaseDB<any>>(filter: ArrayFilter<T> = DBModuleFilter) =>
+	RuntimeModules<T>(filter);
+
+export const RuntimeBE_ModulesDB_Map = () => arrayToMap(RuntimeBE_ModulesDB(), module => module.dbDef.dbKey);
+
 

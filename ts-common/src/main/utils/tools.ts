@@ -58,6 +58,7 @@ export function __stringify<T extends object | string>(obj?: T, pretty?: boolean
 
 export const EmptyObject = Object.freeze({});
 export const EmptyArray = Object.freeze([]);
+export const AlwaysTrue = () => true;
 
 export const voidFunction = Object.freeze(async () => {
 });

@@ -19,7 +19,7 @@
  * limitations under the License.
  */
 
-import {DBIndex, DBProto, IndexKeys, MUSTNeverHappenException, StaticLogger} from '@nu-art/ts-common';
+import {AlwaysTrue, DBIndex, DBProto, IndexKeys, MUSTNeverHappenException, StaticLogger} from '@nu-art/ts-common';
 
 //@ts-ignore - set IDBAPI as indexedDB regardless of browser
 const IDBAPI = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
@@ -132,7 +132,7 @@ export class IndexedDBV3<Proto extends DBProto<any>> {
 	};
 
 	private cursorHandler = (cursorRequest: IDBRequest<IDBCursorWithValue | null>, perValueCallback: (value: Proto['dbType']) => void,
-													 endCallback: () => void, limiterCallback?: () => boolean) => {
+	                         endCallback: () => void, limiterCallback?: () => boolean) => {
 		cursorRequest.onsuccess = (event) => {
 			const cursor: IDBCursorWithValue = (event.target as IDBRequest).result;
 
@@ -289,8 +289,7 @@ export class IndexedDBV3<Proto extends DBProto<any>> {
 
 	public async queryReduce<ReturnType>(reducer: ReduceFunction_V3<Proto['dbType'], ReturnType>, initialValue: ReturnType, filter?: (item: Proto['dbType']) => boolean, query?: IndexDb_Query_V3) {
 		let acc = initialValue;
-		const alwaysTrue = () => true;
-		const _filter = filter || alwaysTrue;
+		const _filter = filter || AlwaysTrue;
 		const matches: Proto['dbType'][] = await this.queryFilter(_filter, query);
 
 		return new Promise<ReturnType>((resolve, reject) => {

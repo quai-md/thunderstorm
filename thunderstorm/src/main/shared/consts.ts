@@ -20,7 +20,9 @@
  */
 
 import {HeaderKey_SessionId} from './headers';
+import {DBModuleType} from './types';
 
+export const DBModuleFilter = (module: DBModuleType) => !!module.dbDef?.dbKey
 
 export const HeaderKey_Env = 'x-env';
 export const HeaderKey_CurrentPage = 'x-current-page';

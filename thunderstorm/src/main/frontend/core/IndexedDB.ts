@@ -19,7 +19,7 @@
  * limitations under the License.
  */
 
-import {DB_Object, DBIndex, IndexKeys, MUSTNeverHappenException, StaticLogger} from '@nu-art/ts-common';
+import {AlwaysTrue, DB_Object, DBIndex, IndexKeys, MUSTNeverHappenException, StaticLogger} from '@nu-art/ts-common';
 
 //@ts-ignore - set IDBAPI as indexedDB regardless of browser
 const IDBAPI = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
@@ -288,8 +288,7 @@ export class IndexedDB<T extends DB_Object, Ks extends keyof T> {
 
 	public async queryReduce<ReturnType>(reducer: ReduceFunction<T, ReturnType>, initialValue: ReturnType, filter?: (item: T) => boolean, query?: IndexDb_Query) {
 		let acc = initialValue;
-		const alwaysTrue = () => true;
-		const _filter = filter || alwaysTrue;
+		const _filter = filter || AlwaysTrue;
 		const matches: T[] = await this.queryFilter(_filter, query);
 
 		return new Promise<ReturnType>((resolve) => {

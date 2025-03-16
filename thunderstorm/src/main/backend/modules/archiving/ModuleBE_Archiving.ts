@@ -4,25 +4,21 @@ import {
 	currentTimeMillis,
 	Day,
 	DB_Object,
-	dbIdLength, DBProto,
+	dbIdLength,
+	DBProto,
 	deepClone,
 	generateHex,
-	Hour, Proto_DB_Object,
-	removeDBObjectKeys,
-	RuntimeModules
+	Hour,
+	Proto_DB_Object,
+	removeDBObjectKeys
 } from '@nu-art/ts-common';
 import {ModuleBE_FirestoreListener} from '@nu-art/firebase/backend';
 import {ModuleBE_BaseDB} from '../db-api-gen/ModuleBE_BaseDB';
 import {addRoutes} from '../ModuleBE_APIs';
 import {createBodyServerApi, createQueryServerApi} from '../../core/typed-api';
-import {
-	ApiDef_Archiving,
-	DBModuleType,
-	RequestBody_HardDeleteUnique,
-	RequestQuery_DeleteAll,
-	RequestQuery_GetHistory
-} from '../../../shared';
+import {ApiDef_Archiving, DBModuleType, RequestBody_HardDeleteUnique, RequestQuery_DeleteAll, RequestQuery_GetHistory} from '../../../shared';
 import {_EmptyQuery} from '@nu-art/firebase';
+import {RuntimeBE_ModulesDB} from '../../core/db-def';
 
 
 type Params = { collectionName: string, docId: string }
@@ -60,8 +56,7 @@ export class ModuleBE_ArchiveModule_Class<DBType extends DB_Object>
 		super.init();
 
 		// Add all DB modules to the mapper
-		RuntimeModules()
-			.filter<ModuleBE_BaseDB<any>>((module: DBModuleType) => !!module.dbDef)
+		RuntimeBE_ModulesDB()
 			.forEach(_module => this.moduleMapper[_module.collection.collection.path] = _module);
 
 		addRoutes([

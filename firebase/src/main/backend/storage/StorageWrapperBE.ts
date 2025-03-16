@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-import {BadImplementationException, currentTimeMillis, Minute, ThisShouldNotHappenException} from '@nu-art/ts-common';
+import {AlwaysTrue, BadImplementationException, currentTimeMillis, Minute, ThisShouldNotHappenException} from '@nu-art/ts-common';
 import {
 	Bucket,
 	CreateReadStreamOptions,
@@ -94,7 +94,7 @@ export class BucketWrapper {
 		return new FileWrapper(pathToRemoteFile, this.bucket.file(pathToRemoteFile), this, emulator);
 	}
 
-	async listFiles(folder: string = '', filter: (file: File) => boolean = () => true): Promise<File[]> {
+	async listFiles(folder: string = '', filter: (file: File) => boolean = AlwaysTrue): Promise<File[]> {
 		const filteredFiles: File[] = [];
 		await this.iterateOverFiles(folder, filter, async (file: File) => filteredFiles.push(file));
 		return filteredFiles;
@@ -104,7 +104,7 @@ export class BucketWrapper {
 		return this.bucket.name;
 	}
 
-	async deleteFiles(folder: string = '', filter: (file: File) => boolean = () => true): Promise<void> {
+	async deleteFiles(folder: string = '', filter: (file: File) => boolean = AlwaysTrue): Promise<void> {
 		await this.iterateOverFiles(folder, filter, (file: File) => file.delete());
 	}
 

@@ -1,45 +1,19 @@
-import {
-	ApiException,
-	arrayToMap,
-	BadImplementationException,
-	Dispatcher,
-	Minute,
-	Module,
-	MUSTNeverHappenException,
-	RuntimeModules,
-	TypedMap
-} from '@nu-art/ts-common';
+import {ApiException, Dispatcher, Module, MUSTNeverHappenException, TypedMap} from '@nu-art/ts-common';
 import {ModuleBE_Firebase} from '@nu-art/firebase/backend';
 import {addRoutes} from '../ModuleBE_APIs';
 import {createBodyServerApi, createQueryServerApi} from '../../core/typed-api';
-import {
-	ApiDef,
-	ApiDef_SyncEnv,
-	ApiModule,
-	DBModuleType,
-	HeaderKey_SessionId,
-	HttpMethod,
-	QueryApi,
-	Request_FetchFirebaseBackup,
-	Request_FetchFromEnv,
-	Request_GetMetadata,
-	Response_BackupDocs,
-	Response_FetchBackupMetadata
-} from '../../../shared';
+import {ApiDef, ApiDef_SyncEnv, DBModuleType, HttpMethod, QueryApi, Request_FetchFirebaseBackup, Request_FetchFromEnv} from '../../../shared';
 import {AxiosHttpModule} from '../http/AxiosHttpModule';
-import {MemKey_HttpRequest} from '../server/consts';
-import {ModuleBE_BaseApi_Class} from '../db-api-gen/ModuleBE_BaseApi';
 import {Storm} from '../../core/Storm';
-import {ModuleBE_BackupDocDB} from '../../../_entity/backup-doc/backend';
 import {ModuleBE_BaseDB} from '../db-api-gen/ModuleBE_BaseDB';
 import {Transform, Writable} from 'stream';
 import {firestore} from 'firebase-admin';
-import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
+import {ModuleBE_BackupDoc_Proxy} from '../../../_entity/backup-doc/backend/ModuleBE_BackupDoc_Proxy';
+import {ModuleBE_BackupDocDB} from '../../../_entity/backup-doc/backend';
+import {RuntimeBE_ModulesDB, RuntimeBE_ModulesDB_Map} from '../../core/db-def';
 
 
 type Config = {
-	urlMap: TypedMap<string>
-	sessionMap: TypedMap<TypedMap<string>>,
 	maxBatch: number
 	shouldBackupBeforeSync?: boolean;
 	allowCleanSync?: boolean;
@@ -47,8 +21,10 @@ type Config = {
 	allowedEnvsToSyncFrom?: string[]
 }
 
+type OnSyncData = { env: string, baseUrl: string, requiredHeaders: TypedMap<string> };
+
 export interface OnSyncEnvCompleted {
-	__onSyncEnvCompleted: (env: string, baseUrl: string, requiredHeaders: TypedMap<string>) => void;
+	__onSyncEnvCompleted: (data: OnSyncData) => void;
 }
 
 const dispatch_OnSyncEnvCompleted = new Dispatcher<OnSyncEnvCompleted, '__onSyncEnvCompleted'>(
@@ -65,69 +41,14 @@ class ModuleBE_SyncEnv_Class
 	init() {
 		super.init();
 		addRoutes([
-			createBodyServerApi(ApiDef_SyncEnv.vv1.syncToEnv, this.pushToEnv),
+			createBodyServerApi(ApiDef_SyncEnv.vv1.syncFromLastBackup, this.syncFromLastBackup),
 			createBodyServerApi(ApiDef_SyncEnv.vv1.syncFromEnvBackup, this.syncFromEnvBackup),
-			createQueryServerApi(ApiDef_SyncEnv.vv1.getLatestBackup, this.getLatestBackupId),
-			createQueryServerApi(ApiDef_SyncEnv.vv1.createBackup, this.createBackup),
-			createQueryServerApi(ApiDef_SyncEnv.vv1.fetchBackupMetadata, this.fetchBackupMetadata),
 			createQueryServerApi(ApiDef_SyncEnv.vv1.syncFirebaseFromBackup, this.syncFirebaseFromBackup),
 		]);
 	}
 
-	fetchBackupMetadata = async (queryParams: Request_GetMetadata): Promise<Response_FetchBackupMetadata> => {
-		const backupInfo = await this.getBackupInfo(queryParams);
+	syncFromLastBackup = async (body?: Partial<Request_FetchFromEnv> = {}) => {
 
-		if (!backupInfo)
-			throw new ApiException(404, 'backup file not found');
-
-		if (!backupInfo.metadata)
-			throw new ApiException(404, 'No metadata found on this backup');
-
-		return {
-			...backupInfo.metadata,
-			remoteCollectionNames: (RuntimeModules()
-				.filter<ModuleBE_BaseDB<any>>((module: DBModuleType) => !!module.dbDef?.dbKey)).map(_module => _module.dbDef.dbKey)
-		};
-	};
-
-	async pushToEnv(body: {
-		env: 'dev' | 'prod',
-		moduleName: string,
-		items: any[]
-	}) {
-		const remoteUrls = {
-			dev: 'https://us-central1-shopify-manager-tool-dev.cloudfunctions.net/api',
-			prod: 'https://mng.be.petitfawn.com'
-		};
-
-		const url = remoteUrls[body.env];
-		const sessionId = MemKey_HttpRequest.get().headers[HeaderKey_SessionId];
-
-		const module = RuntimeModules().find<ModuleBE_BaseApi_Class<any>>((module: ApiModule) => module.dbModule?.dbDef?.dbKey === body.moduleName);
-
-		const upsertAll = module.apiDef.v1.upsertAll;
-		const response: Response_BackupDocs = await AxiosHttpModule
-			.createRequest({...upsertAll, fullUrl: url + '/' + upsertAll.path, timeout: 5 * Minute})
-			.setBody(body.items)
-			.setUrlParams(body.items)
-			.addHeader(HeaderKey_SessionId, sessionId!)
-			.executeSync(true);
-
-		console.log(response);
-	}
-
-	createBackup = async () => {
-		return ModuleBE_BackupDocDB.initiateBackup(true);
-	};
-
-	getLatestBackupId = async () => {
-		const backups = await ModuleBE_BackupDocDB.collection.query.custom({orderBy: [{key: "__created", order: "desc"}], limit: 1});
-		const latestBackup = backups[0];
-		if (!latestBackup)
-			throw HttpCodes._4XX.ENTITY_DOESNT_EXISTS("No backup found");
-
-		const latestBackupId = latestBackup?._id;
-		return {latestBackupId: latestBackupId};
 	};
 
 	syncFromEnvBackup = async (body: Request_FetchFromEnv) => {
@@ -153,7 +74,7 @@ class ModuleBE_SyncEnv_Class
 		if (this.config.shouldBackupBeforeSync) {
 			this.logInfo(`----  Creating Backup... ----`);
 			startTime = performance.now(); // required for log
-			await this.createBackup();
+			await ModuleBE_BackupDocDB.createBackup();
 			endTime = performance.now(); // required for log
 			this.logInfo(`Backup took ${((endTime - startTime) / 1000).toFixed(3)} seconds`);
 		}
@@ -161,7 +82,7 @@ class ModuleBE_SyncEnv_Class
 		if (body.cleanSync) {
 			this.logInfo(`----  Cleaning Collections From DB... ----`);
 			//Delete all modules specified for syncing
-			const modulesToDelete = RuntimeModules().filter((module: DBModuleType) => body.selectedModules.includes(module.dbDef?.dbKey));
+			const modulesToDelete = RuntimeBE_ModulesDB((module: DBModuleType) => body.selectedModules.includes(module.dbDef?.dbKey));
 			for (const module of modulesToDelete) {
 				await (module as ModuleBE_BaseDB<any>).collection.delete.yes.iam.sure.iwant.todelete.the.collection.delete();
 				this.logInfo(`----  Cleaned Collection ${module.dbDef!.dbKey} ----`);
@@ -169,8 +90,8 @@ class ModuleBE_SyncEnv_Class
 		}
 
 		//Prepare Syncing data
-		const backupInfo = await this.getBackupInfo(body);
-		const stream = await ModuleBE_BackupDocDB.createBackupReadStream(backupInfo);
+		const backupInfo = await ModuleBE_BackupDoc_Proxy.getBackupInfo(body);
+		const stream = await ModuleBE_BackupDoc_Proxy.createBackupReadStream(backupInfo);
 		const collectionFilter = new SyncCollectionFilter(body.selectedModules);
 		const collectionWriter = new CollectionBatchWriter(body.chunkSize);
 
@@ -193,19 +114,12 @@ class ModuleBE_SyncEnv_Class
 			this.logInfo(`(Backup took ${((endTime - startTime) / 1000).toFixed(3)} seconds)`);
 	};
 
-	private async getBackupInfo(queryParams: Request_GetMetadata) {
-		const {backupId, env} = queryParams;
-		if (!env)
-			throw new BadImplementationException(`Did not receive env in the fetch from env api call!`);
-
-		return ModuleBE_BackupDocDB.getBackupInfo(backupId, this.config.urlMap[env], this.config.sessionMap[env]);
-	}
 
 	syncFirebaseFromBackup = async (queryParams: Request_FetchFirebaseBackup) => {
 		try {
 			this.logDebug('Getting the firebase backup file');
 			const firebaseSessionAdmin = ModuleBE_Firebase.createAdminSession();
-			const backupInfo = await this.getBackupInfo(queryParams);
+			const backupInfo = await ModuleBE_BackupDoc_Proxy.getBackupInfo(queryParams);
 			const database = firebaseSessionAdmin.getDatabase();
 
 			this.logDebug('Reading the file from storage');
@@ -261,8 +175,7 @@ class CollectionBatchWriter
 		const firebaseSessionAdmin = ModuleBE_Firebase.createAdminSession();
 		this.firestore = firebaseSessionAdmin.getFirestoreV3().firestore;
 		this.batchWriter = this.firestore.batch();
-		this.modules = arrayToMap(RuntimeModules()
-			.filter((module: DBModuleType) => !(!module || !module.dbDef)), module => module.dbDef!.dbKey);
+		this.modules = RuntimeBE_ModulesDB_Map();
 	}
 
 	async _write(chunk: any, encoding: string, callback: (error?: Error | null) => void) {

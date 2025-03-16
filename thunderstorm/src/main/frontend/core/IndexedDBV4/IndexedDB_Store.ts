@@ -1,4 +1,4 @@
-import {DBProto, IndexKeys, Logger, MUSTNeverHappenException} from '@nu-art/ts-common';
+import {AlwaysTrue, DBProto, IndexKeys, Logger, MUSTNeverHappenException} from '@nu-art/ts-common';
 import {DBConfigV3, IndexDb_Query_V3, ReduceFunction_V3} from './types';
 
 
@@ -223,8 +223,7 @@ export class IndexedDB_Store<Proto extends DBProto<any>>
 
 	public async queryReduce<ReturnType>(reducer: ReduceFunction_V3<Proto['dbType'], ReturnType>, initialValue: ReturnType, filter?: (item: Proto['dbType']) => boolean, query?: IndexDb_Query_V3) {
 		let acc = initialValue;
-		const alwaysTrue = () => true;
-		const _filter = filter || alwaysTrue;
+		const _filter = filter || AlwaysTrue;
 		const matches: Proto['dbType'][] = await this.queryFilter(_filter, query);
 
 		return new Promise<ReturnType>((resolve, reject) => {

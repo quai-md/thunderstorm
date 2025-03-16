@@ -83,7 +83,7 @@ export class AxiosHttpModule_Class
 
 export const AxiosHttpModule = new AxiosHttpModule_Class();
 
-class AxiosHttpRequest<API extends TypedApi<any, any, any, any>>
+export class AxiosHttpRequest<API extends TypedApi<any, any, any, any>>
 	extends BaseHttpRequest<API> {
 	private response?: Axios_Response<API['R']>;
 	private cancelSignal: Axios_CancelTokenSource;

@@ -2,7 +2,6 @@ import {
 	__stringify,
 	_logger_logException,
 	ApiException,
-	BadImplementationException,
 	cloneObj,
 	currentTimeMillis,
 	Day,
@@ -16,7 +15,6 @@ import {
 	PreDB,
 	RuntimeModules,
 	sortArray,
-	TypedMap,
 	UniqueId
 } from '@nu-art/ts-common';
 import {DBApiConfigV3, ModuleBE_BaseDB} from '../../../backend/modules/db-api-gen/ModuleBE_BaseDB';
@@ -24,17 +22,18 @@ import {ModuleBE_Firebase} from '@nu-art/firebase/backend';
 import {_EmptyQuery, FirestoreQuery} from '@nu-art/firebase';
 import {Readable} from 'stream';
 import {FirestoreCollectionV3} from '@nu-art/firebase/backend/firestore-v3/FirestoreCollectionV3';
-import {BackupMetaData, DB_BackupDoc, DBProto_BackupDoc, FetchBackupDoc} from '../shared/types';
+import {BackupMetaData, DB_BackupDoc, DBProto_BackupDoc} from '../shared/types';
 import {addRoutes} from '../../../backend/modules/ModuleBE_APIs';
 import {ApiDef_BackupDoc, Request_BackupId, Response_BackupDocs} from '../shared/api-def';
 import {createQueryServerApi} from '../../../backend/core/typed-api';
 import {DBDef_BackupDoc} from '../shared/db-def';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
 import {MemKey_HttpRequestHeaders} from '../../../backend/modules/server/consts';
-import {ApiDef, HttpMethod, QueryApi} from '../../../shared';
-import {AxiosHttpModule} from '../../../backend';
 import {CSVModuleV3} from '@nu-art/ts-common/modules/CSVModuleV3';
 import {ModuleBE_CollectionActions} from '../../../backend/modules/collection-actions/ModuleBE_CollectionActions';
+import {Request_GetMetadata, Response_FetchBackupMetadata} from '../../../shared';
+import {ModuleBE_BackupDoc_Proxy} from './ModuleBE_BackupDoc_Proxy';
+import {RuntimeBE_ModulesDB} from '../../../backend';
 
 export interface OnModuleCleanupV2 {
 	__onCleanupInvokedV2: () => Promise<void>;
@@ -47,17 +46,6 @@ type Config = DBApiConfigV3<DBProto_BackupDoc> & {
 	minTimeThreshold: number,
 	excludedDbKeys?: string[],
 }
-
-// const CSVConfig = {
-// 	fieldSeparator: ',',
-// 	quoteStrings: '',
-// 	decimalSeparator: '.',
-// 	showLabels: true,
-// 	showTitle: false,
-// 	useTextFile: false,
-// 	useBom: true,
-// 	useKeysAsHeaders: true,
-// };
 
 type DBModules = ModuleBE_BaseDB<any>;
 
@@ -81,8 +69,12 @@ export class ModuleBE_BackupDocDB_Class
 		super.init();
 		this.collection = this.getBackupStatusCollection();
 		addRoutes([
+			createQueryServerApi(ApiDef_BackupDoc._v1.getLatestBackup, this.getLatestBackupId),
 			createQueryServerApi(ApiDef_BackupDoc._v1.initiateBackup, () => this.initiateBackup()),
 			createQueryServerApi(ApiDef_BackupDoc._v1.fetchBackupDocs, this.fetchBackupDocs),
+			createQueryServerApi(ApiDef_BackupDoc._v1.createBackup, this.createBackup),
+			createQueryServerApi(ApiDef_BackupDoc._v1.fetchBackupMetadata, this.fetchBackupMetadata),
+
 		]);
 	}
 
@@ -93,70 +85,45 @@ export class ModuleBE_BackupDocDB_Class
 			.getCollection(DBDef_BackupDoc);
 	};
 
+	fetchBackupMetadata = async (queryParams: Request_GetMetadata): Promise<Response_FetchBackupMetadata> => {
+		const backupInfo = await ModuleBE_BackupDoc_Proxy.getBackupInfo(queryParams);
+
+		const filter = RuntimeBE_ModulesDB();
+		return {
+			...backupInfo.metadata,
+			remoteCollectionNames: filter.map(_module => _module.dbDef.dbKey)
+		};
+	};
+
+	createBackup = async () => {
+		return ModuleBE_BackupDocDB.initiateBackup(true);
+	};
+
+	private getLatestBackupId = async () => {
+		const backups = await this.collection.query.custom({orderBy: [{key: "__created", order: "desc"}], limit: 1});
+		const latestBackup = backups[0];
+		if (!latestBackup)
+			throw HttpCodes._4XX.ENTITY_DOESNT_EXISTS("No backup found");
+
+		const latestBackupId = latestBackup?._id;
+		return {latestBackupId: latestBackupId};
+	};
+
 	/**
 	 * Get metadata objects per each collection module that needs to be backed up.
 	 */
-	public getBackupDetails = (): DBModules[] => {
-		return RuntimeModules()
-			.filter((module) => {
-				if (!module || !module.dbDef)
-					return false;
+	public getBackupDetails = () => {
+		return RuntimeBE_ModulesDB((module: DBModules) => {
+			if (!module || !module.dbDef)
+				return false;
 
-				if (this.config.excludedDbKeys?.includes(module.dbDef.dbKey)) {
-					this.logWarningBold(`Skipping module ${module.dbDef.dbKey} since it's in the exclusion list.`);
-					return false;
-				}
+			if (this.config.excludedDbKeys?.includes(module.dbDef.dbKey)) {
+				this.logWarningBold(`Skipping module ${module.dbDef.dbKey} since it's in the exclusion list.`);
+				return false;
+			}
 
-				return true;
-			});
-	};
-
-	// private async getBackupInfo(queryParams: Request_GetMetadata) {
-	async getBackupInfo(backupId: string, baseUrl: string, headers: TypedMap<string | string[]>) {
-		const url: string = `${baseUrl}/v1/fetch-backup-docs-v2`;
-		const outputDef: ApiDef<QueryApi<Response_BackupDocs, Request_BackupId>> = {
-			method: HttpMethod.GET,
-			path: '',
-			fullUrl: url
-		};
-		const requestBody = {backupId};
-
-		try {
-			let request = AxiosHttpModule
-				.createRequest(outputDef)
-				.setUrlParams(requestBody);
-
-			request = request.addHeaders(headers);
-
-			const response: Response_BackupDocs = await request.executeSync();
-			const backupInfo = response.backupInfo;
-
-			const wrongBackupIdDescriptor = backupInfo?._id !== backupId;
-
-			if (wrongBackupIdDescriptor)
-				throw new BadImplementationException(`Received backup descriptors with wrong backupId! provided id: ${backupId} received id: ${backupInfo?._id}`);
-
-			return backupInfo;
-		} catch (err: any) {
-			throw new ApiException(500, err);
-		}
-	}
-
-	getBackupStreamFromId = async (backupInfo: FetchBackupDoc) => {
-		if (!backupInfo.backupFilePath)
-			throw new ApiException(404, 'Backup file path not found');
-
-		this.logInfo(`----  Fetching Backup Stream from: ${backupInfo.firestoreSignedUrl} ----`);
-		const signedUrlDef: ApiDef<QueryApi<any>> = {
-			method: HttpMethod.GET,
-			path: '',
-			fullUrl: backupInfo.firestoreSignedUrl
-		};
-
-		return (await AxiosHttpModule
-			.createRequest(signedUrlDef)
-			.setResponseType('stream')
-			.executeSync()) as Readable;
+			return true;
+		});
 	};
 
 	// ##################### Collection Interaction #####################
@@ -300,11 +267,6 @@ export class ModuleBE_BackupDocDB_Class
 		return {pathToBackup: backupPath, backupId: dbBackup._id};
 	};
 
-	createBackupReadStream = async (backupInfo: FetchBackupDoc): Promise<Readable> => {
-		const stream = await this.getBackupStreamFromId(backupInfo);
-		const transformer = CSVModuleV3.provideFormatterFromCsv();
-		return stream.pipe(transformer);
-	};
 
 	createBackupReadStreamFromBucket = async (pathInBucket: string): Promise<Readable> => {
 		const file = await ModuleBE_Firebase.createAdminSession().getStorage().getFile(pathInBucket);

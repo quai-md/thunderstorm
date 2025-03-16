@@ -28,7 +28,8 @@ import {
 	Module,
 	ThisShouldNotHappenException,
 	timeout,
-	filterInstances
+	filterInstances,
+    AlwaysTrue
 } from "@nu-art/ts-common";
 import {
 	cloudresourcemanager_v1,
@@ -135,7 +136,7 @@ export class ModuleBE_GcpManager_Class
 	}
 
 	// PROJECTS
-	async listProjects(filter: ((project: Schema$Project) => boolean) = () => true) {
+	async listProjects(filter: ((project: Schema$Project) => boolean) = AlwaysTrue) {
 		const results = await this.cloudResourcesManagerAPIv1.projects.list();
 
 		const projects: Schema$Project[] = results.data.projects || [];

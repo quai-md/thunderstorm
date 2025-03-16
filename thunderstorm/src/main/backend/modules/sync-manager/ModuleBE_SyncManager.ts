@@ -35,7 +35,6 @@ import {
 	PreDB,
 	ResolvableContent,
 	resolveContent,
-	RuntimeModules,
 	TypedMap,
 	UniqueId
 } from '@nu-art/ts-common';
@@ -58,6 +57,7 @@ import {OnSyncEnvCompleted} from '../sync-env/ModuleBE_SyncEnv';
 import {OnModuleCleanupV2} from '../../_entity';
 import {FirestoreCollectionV3} from '@nu-art/firebase/backend/firestore-v3/FirestoreCollectionV3';
 import {ApiDef_SyncManager, SyncManagerAPI_SmartSync} from '../../../shared/sync-manager/apis';
+import {RuntimeBE_ModulesDB} from '../../core/db-def';
 import Transaction = firestore.Transaction;
 
 
@@ -107,9 +107,7 @@ export class ModuleBE_SyncManager_Class
 		const firestore = ModuleBE_Firebase.createAdminSession().getFirestoreV3();
 		this.collection = firestore.getCollection(DBDef_DeletedDoc);
 
-		this.dbModules = RuntimeModules().filter(module => ((module as unknown as {
-			ModuleBE_BaseDBV2: boolean
-		}).ModuleBE_BaseDBV2));
+		this.dbModules = RuntimeBE_ModulesDB();
 		this.database = ModuleBE_Firebase.createAdminSession().getDatabase();
 		addRoutes([this.smartSyncApi]);
 	}

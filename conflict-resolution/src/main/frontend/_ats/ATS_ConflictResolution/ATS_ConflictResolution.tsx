@@ -15,6 +15,7 @@ import {
 } from '@nu-art/thunderstorm/frontend';
 import {ModuleFE_CollectionActions} from '@nu-art/thunderstorm/frontend/modules/ModuleFE_CollectionActions';
 import {ModuleFE_ConflictResolution} from '../../_modules/ModuleFE_ConflictResolution';
+import { RuntimeFE_ModulesDB } from '@nu-art/thunderstorm/frontend/core/db-api-gen/db-def';
 
 type State = {
 	upgradableModules: ModuleFE_BaseApi<any, any>[];
@@ -33,9 +34,7 @@ export class ATS_ConflictResolution
 	};
 
 	protected deriveStateFromProps(nextProps: {}, state: State) {
-		state.upgradableModules ??= sortArray(filterDuplicates(RuntimeModules().filter((module: ModuleFE_BaseApi<any>) => {
-			return !!module.getCollectionName;
-		}), (module: ModuleFE_BaseApi<any>) => module.getCollectionName()), item => item.getCollectionName());
+		state.upgradableModules ??= sortArray(filterDuplicates(RuntimeFE_ModulesDB(), (module: ModuleFE_BaseApi<any>) => module.getCollectionName()), item => item.getCollectionName());
 
 		return state;
 	}

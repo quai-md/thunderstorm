@@ -1,5 +1,5 @@
-import {_keys, arrayToMap, Dispatcher, filterInstances, flatArray, Module, MUSTNeverHappenException, PreDB, reduceToMap, RuntimeModules, TypedMap,} from '@nu-art/ts-common';
-import {addRoutes, createQueryServerApi, MemKey_ServerApi, ModuleBE_AppConfigDB, ModuleBE_BaseApi_Class, Storm} from '@nu-art/thunderstorm/backend';
+import {_keys, Dispatcher, filterInstances, flatArray, Module, MUSTNeverHappenException, PreDB, reduceToMap, TypedMap,} from '@nu-art/ts-common';
+import {addRoutes, createQueryServerApi, MemKey_ServerApi, ModuleBE_AppConfigDB, RuntimeBE_ModulesDB_Map, Storm} from '@nu-art/thunderstorm/backend';
 import {ApiDef_Permissions,} from '../../shared';
 import {CollectSessionData, MemKey_AccountId, ModuleBE_SessionDB, SessionCollectionParam} from '@nu-art/user-account/backend';
 import {DefaultDef_Group, DefaultDef_Project, SessionData_Permissions} from '../../shared/types';
@@ -19,7 +19,6 @@ import {
 	defaultLevelsRouteLookupWords,
 	DuplicateDefaultAccessLevels
 } from '../../shared/consts';
-import {ApiModule} from '@nu-art/thunderstorm';
 import {ModuleBE_PermissionsAssert} from './ModuleBE_PermissionsAssert';
 import {PerformProjectSetup} from '@nu-art/thunderstorm/backend/modules/action-processor/Action_SetupProject';
 import {
@@ -353,8 +352,7 @@ class ModuleBE_Permissions_Class
 					accessLevelIds: [domainNameToLevelNameToDBAccessLevel[api.domainId ?? domain._id][api.accessLevel]._id]
 				})));
 
-				const apiModules = arrayToMap(RuntimeModules()
-					.filter<ModuleBE_BaseApi_Class<any>>((module: ApiModule) => !!module.apiDef && !!module.dbModule?.dbDef?.dbKey), item => item.dbModule!.dbDef!.dbKey);
+				const apiModules = RuntimeBE_ModulesDB_Map();
 
 				this.logDebug(_keys(apiModules));
 

@@ -1,5 +1,7 @@
-import {Const_UniqueKey, DBDef_V3, DBProto, DefaultDBVersion} from '@nu-art/ts-common';
+import {ArrayFilter, Const_UniqueKey, DBDef_V3, DBProto, DefaultDBVersion, RuntimeModules} from '@nu-art/ts-common';
 import {DBConfigV3} from '../IndexedDBV4/types';
+import {DBModuleFilter} from '../../../shared';
+import {ModuleFE_BaseApi} from '../../modules/db-api-gen/ModuleFE_BaseApi';
 
 export type DBApiFEConfig<Proto extends DBProto<any>> = {
 	key: string
@@ -23,3 +25,6 @@ export const getModuleFEConfigV3 = <Proto extends DBProto<any>>(dbDef: DBDef_V3<
 		},
 	};
 };
+
+export const RuntimeFE_ModulesDB = <T extends ModuleFE_BaseApi<any>>(filter: ArrayFilter<T> = DBModuleFilter) =>
+	RuntimeModules<T>(filter);

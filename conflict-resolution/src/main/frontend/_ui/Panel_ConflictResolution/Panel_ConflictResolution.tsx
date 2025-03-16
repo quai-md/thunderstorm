@@ -1,11 +1,12 @@
 import * as React from 'react';
 import {DBEntityDependencies} from '@nu-art/thunderstorm';
-import {Button, ComponentSync, LL_H_C, LL_V_L, ModuleFE_BaseDB} from '@nu-art/thunderstorm/frontend';
-import {_keys, _values, filterDuplicates, flatArray, RuntimeModules} from '@nu-art/ts-common';
+import {Button, ComponentSync, LL_H_C, LL_V_L} from '@nu-art/thunderstorm/frontend';
+import {_keys, _values, filterDuplicates, flatArray} from '@nu-art/ts-common';
 import {dispatch_ShowConflictResolution} from '../../_dispatchers';
 import {TS_Icons} from '@nu-art/ts-styles/icons';
 import './Panel_ConflictResolution.scss';
 import {ConflictResolutionTree} from '../ConflictResolutionTree/ConflictResolutionTree';
+import {RuntimeFE_ModulesDB} from '@nu-art/thunderstorm/frontend/core/db-api-gen/db-def';
 
 type Props = {
 	dependencies: DBEntityDependencies
@@ -28,7 +29,7 @@ export class Panel_ConflictResolution
 	// ##################### Logic #####################
 
 	private resolveEntityLabel = () => {
-		const module = RuntimeModules().filter(module => (module as ModuleFE_BaseDB<any>).dbDef?.dbKey === this.props.dependencies.dbKey)[0] as ModuleFE_BaseDB<any>;
+		const module = RuntimeFE_ModulesDB(module => module.dbDef.dbKey === this.props.dependencies.dbKey)[0];
 		return module?.dbDef.entityName ?? 'Entity';
 	};
 
@@ -87,6 +88,6 @@ export class Panel_ConflictResolution
 	private render_Body_Expanded = () => {
 		return <div className={'panel__conflict-resolution__tree-wrapper'}>
 			<ConflictResolutionTree dependencies={this.state.dependencies}/>
-		</div>
+		</div>;
 	};
 }

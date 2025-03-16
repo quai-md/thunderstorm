@@ -22,8 +22,8 @@
 import {Express, NextFunction} from 'express';
 import {ExpressRequest, ExpressResponse, ServerApi_Middleware} from '../../../utils/types';
 import {ServerApi} from '../server-api';
-import {asArray, Logger, LogLevel, Module, MUSTNeverHappenException, RuntimeModules} from '@nu-art/ts-common';
-import {ModuleBE_APIs_Class} from '../../ModuleBE_APIs';
+import {asArray, Logger, LogLevel, MUSTNeverHappenException} from '@nu-art/ts-common';
+import {ModuleBE_APIs} from '../../ModuleBE_APIs';
 import {ApiDef} from '../../../../shared';
 
 
@@ -50,15 +50,9 @@ export class RouteResolver_ModulePath
 	}
 
 	public resolveApi() {
-		const modules: (Module | ModuleBE_APIs_Class)[] = RuntimeModules().filter((module: ModuleBE_APIs_Class) => !!module.useRoutes);
 
 		//Filter Api modules
-		const routes: ServerApi<any>[] = [];
-		for (const module of modules) {
-			this.logInfo(module.getName());
-			const _routes = (module as unknown as ModuleBE_APIs_Class).useRoutes();
-			routes.push(..._routes);
-		}
+		const routes: ServerApi<any>[] = ModuleBE_APIs.useRoutes();
 
 		// console.log(routes);
 		routes.forEach(api => {

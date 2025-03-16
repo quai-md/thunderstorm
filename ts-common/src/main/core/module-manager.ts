@@ -25,6 +25,7 @@ import {BadImplementationException} from './exceptions/exceptions';
 import {Logger} from './logger/Logger';
 import {addItemToArray} from '../utils/array-tools';
 import {exists} from '../utils/tools';
+import {ArrayFilter} from '../utils/types';
 
 
 const _modules: Module[] = [];
@@ -54,7 +55,8 @@ const modulesInterface = {
 	},
 	all: _modules
 };
-export const RuntimeModules = () => ModuleManager.instance.modules;
+
+export const RuntimeModules = <T extends Module>(filter: ArrayFilter<T> = () => true) => ModuleManager.instance.modules.filter(filter);
 export const RuntimeVersion = () => ModuleManager.instance.version;
 export const RuntimeEnvironment = () => ModuleManager.instance.getEnvironment();
 
