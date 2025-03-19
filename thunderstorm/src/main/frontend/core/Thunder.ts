@@ -24,7 +24,7 @@ import {
 	AsyncVoidFunction,
 	BeLogged,
 	ImplementationMissingException,
-	LogClient_BrowserGroups,
+	LogClient_BrowserGroups, merge,
 	ModuleManager,
 	Promise_all_sequentially,
 	removeItemFromArray
@@ -37,6 +37,7 @@ import {ThunderAppWrapperProps} from './types';
 import * as RDC from 'react-dom/client';
 import {appWithJSX} from './AppWrapper';
 import {StorageKey} from '../modules/ModuleFE_LocalStorage';
+import axios from 'axios';
 
 export const Storage_AppVersion = new StorageKey<string>('app-version').withstandDeletion();
 
@@ -53,6 +54,7 @@ export class Thunder
 		this._DEBUG_FLAG.enable(false);
 		// @ts-ignore
 		ThunderDispatcher.listenersResolver = () => this.listeners;
+		this.addPreBuildAction(this.fetchConfig.bind(this)); // add config resolver as a pre build action
 	}
 
 	static getInstance(): Thunder {
@@ -78,6 +80,11 @@ export class Thunder
 		RDC.createRoot(rootDiv).render(appJsx);
 
 		return this;
+	}
+
+	private async fetchConfig() {
+		const config = await axios.get(`${this.config.databaseURL}/${this.config.configNode}`);
+		this.config = merge(this.config, config.data);
 	}
 
 	protected addUIListener(listener: any): void {
