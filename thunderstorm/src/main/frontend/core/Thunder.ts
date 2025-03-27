@@ -27,7 +27,7 @@ import {
 	LogClient_BrowserGroups, merge,
 	ModuleManager,
 	Promise_all_sequentially,
-	removeItemFromArray
+	removeItemFromArray, TS_Object
 } from '@nu-art/ts-common';
 import {ThunderDispatcher} from './thunder-dispatcher';
 
@@ -83,8 +83,18 @@ export class Thunder
 	}
 
 	private async fetchConfig() {
-		const config = await axios.get(`${this.config.databaseURL}/${this.config.configNode}`);
-		this.config = merge(this.config, config.data);
+		if (!this.config.configLoaderUrl)
+			return;
+
+		try {
+			const config = await axios.get<TS_Object | undefined>(this.config.configLoaderUrl);
+			if (!config.config || typeof config.data !== 'object')
+				return this.logWarning('cannot merge config, received no data or a non-object data');
+
+			this.config = merge(this.config, config.data);
+		} catch (err: any) {
+			this.logError('failed loading config with error', err);
+		}
 	}
 
 	protected addUIListener(listener: any): void {
