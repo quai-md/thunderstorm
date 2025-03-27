@@ -88,7 +88,7 @@ export class Thunder
 
 		try {
 			const config = await axios.get<TS_Object | undefined>(this.config.configLoaderUrl);
-			if (!config.config || typeof config.data !== 'object')
+			if (!config.data || typeof config.data !== 'object')
 				return this.logWarning('cannot merge config, received no data or a non-object data');
 
 			this.config = merge(this.config, config.data);
