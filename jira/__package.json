@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/jira",
-  "version": "$THUNDERSTORM_SDK_VERSION",
+  "version": "$THUNDERSTORM_VERSION",
   "description": "Jira api Module",
   "keywords": [
     "TacB0sS",
@@ -22,9 +22,9 @@
   "main": "index.js",
   "types": "index.d.ts",
   "dependencies": {
-    "@nu-art/thunderstorm": "$THUNDERSTORM_DEPENDENCY_VERSION",
-    "@nu-art/ts-common": "$THUNDERSTORM_DEPENDENCY_VERSION",
-    "@nu-art/firebase": "$THUNDERSTORM_DEPENDENCY_VERSION",
+    "@nu-art/thunderstorm": "$THUNDERSTORM_DEP_VERSION",
+    "@nu-art/ts-common": "$THUNDERSTORM_DEP_VERSION",
+    "@nu-art/firebase": "$THUNDERSTORM_DEP_VERSION",
     "firebase-admin": "$FIREBASE_ADMIN_PKG_VERSION",
     "body-parser": "^1.18.3",
     "compression": "^1.7.4",
@@ -40,10 +40,7 @@
     "@types/request": "^2.48.3",
     "@types/saml2-js": "^1.6.8"
   },
-  "_moduleAliases": {
-    "@consts": "dist/consts",
-    "@modules": "dist/modules",
-    "@shared": "dist/app-shared"
+  "unitConfig": {
+    "type": "typescript-lib"
   }
 }
-

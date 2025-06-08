@@ -19,9 +19,6 @@
  * limitations under the License.
  */
 
-export * from './core/SmartComponent';
-
-
 export * from './_ats';
 export * from './core/types';
 export * from './core/ThunderstormDefaultApp';
@@ -87,7 +84,7 @@ export * from './components/TS_ReadMore';
 export * from './components/AwaitModules/AwaitModules';
 export * from './components/AwaitSync/AwaitSync';
 export * from './components/Show';
-export * from './components/TS_EditableItemComponent/TS_EditableItemComponent';
+export * from './components/TS_EditableContent/TS_EditableContent';
 export * from './components/TS_ButtonGroup';
 export * from './components/TS_Toggle';
 export * from './components/TS_JSONViewer/TS_JSONViewer';

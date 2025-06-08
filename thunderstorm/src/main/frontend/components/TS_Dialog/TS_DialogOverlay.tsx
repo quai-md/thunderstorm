@@ -67,7 +67,7 @@ export class TS_DialogOverlay
 						const content = resolveContent(model.content, () => this.forceUpdate());
 						if (i === this.state.models.length - 1)
 							//This model content is wrapped in a div to keep the React hierarchy. if you remove it, the model stack won't work.
-							return <div key={i}>{content}</div>;
+							return <div key={i} onClick={stopPropagation} onContextMenu={stopPropagation}>{content}</div>;
 
 						return <div key={i} style={{display: 'none', height: 0}}>{content}</div>;
 					})}

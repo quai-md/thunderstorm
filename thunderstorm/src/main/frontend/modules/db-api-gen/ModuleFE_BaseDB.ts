@@ -43,7 +43,10 @@ import {
 } from '@nu-art/ts-common';
 import {composeDbObjectUniqueId} from '@nu-art/firebase';
 import {OnClearWebsiteData} from '../clearWebsiteDataDispatcher';
-import {DBApiFEConfig, getModuleFEConfigV3} from '../../core/db-api-gen/db-def';
+import {
+	DBApiFEConfig,
+	getModuleFEConfigV3
+} from '../../core/db-api-gen/db-def';
 import {
 	DataStatus,
 	EventType_Create,
@@ -58,12 +61,18 @@ import {
 } from '../../core/db-api-gen/consts';
 import {StorageKey} from '../ModuleFE_LocalStorage';
 import {ThunderDispatcher} from '../../core/thunder-dispatcher';
-import {IndexDb_Query, ReduceFunction} from '../../core/IndexedDB';
+import {
+	IndexDb_Query,
+	ReduceFunction
+} from '../../core/IndexedDB';
 import {IndexedDB_Store} from '../../core/IndexedDBV4/IndexedDB_Store';
 import {DBConfigV3} from '../../core/IndexedDBV4/types';
 import {ModuleFE_IDBManager} from '../../core/IndexedDBV4/ModuleFE_IDBManager';
 import {CustomMemCreators, ModuleSyncType} from './types';
-import {MultiApiEvent, SingleApiEvent} from '../../core/db-api-gen/types';
+import {
+	MultiApiEvent,
+	SingleApiEvent
+} from '../../core/db-api-gen/types';
 
 
 export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends DBApiFEConfig<Proto> = DBApiFEConfig<Proto>>
@@ -317,7 +326,6 @@ export class IDBCache<Proto extends DBProto<any>>
 		this.lastVersion = new StorageKey<string>('last-version--' + dbKey);
 		const onOpenedCallback = () => {
 			const previousVersion = this.lastVersion.get();
-			this.lastVersion.set(currentVersion);
 
 			this.storeWrapper.exists().then(exists => {
 				if (!exists) {
@@ -326,14 +334,19 @@ export class IDBCache<Proto extends DBProto<any>>
 				}
 			});
 
-			if (!previousVersion || previousVersion === currentVersion)
+			if (!previousVersion || previousVersion === currentVersion) {
+				this.lastVersion.set(currentVersion);
 				return;
+			}
 
 			this.lastSync.delete();
 			this.logInfo(`Cleaning up & Sync...`);
 			this.clear()
-				.then(() => this.logInfo(`Cleaning up & Sync: Completed`))
-				.catch((e) => this.logError(`Cleaning up & Sync: ERROR`, e));
+			    .then(() => {
+				    this.lastVersion.set(currentVersion);
+				    this.logInfo(`Cleaning up & Sync: Completed`);
+			    })
+			    .catch((e) => this.logError(`Cleaning up & Sync: ERROR`, e));
 		};
 		this.storeWrapper = ModuleFE_IDBManager.register(dbConfig, onOpenedCallback);
 	}
@@ -363,9 +376,9 @@ export class IDBCache<Proto extends DBProto<any>>
 	};
 
 	query = async (query?: string | number | string[] | number[], indexKey?: string): Promise<Proto['dbType'][]> => (await this.storeWrapper.query({
-		query,
-		indexKey
-	})) || [];
+		                                                                                                                                               query,
+		                                                                                                                                               indexKey
+	                                                                                                                                               })) || [];
 
 	/**
 	 * Iterates over all DB objects in the related collection, and returns all the items that pass the filter
@@ -480,6 +493,14 @@ export class MemCache<Proto extends DBProto<any>> {
 		this.loaded = true;
 		this.module.logDebug(`${moduleName} cache finished loading, count: ${this.all().length}`);
 	}
+
+	uniqueAssert = (_key?: Proto['uniqueParam']): Readonly<Proto['dbType']> => {
+		const item = this.unique(_key);
+		if (!item)
+			throw new BadImplementationException(`Missing expected item for keys: ${JSON.stringify(_key)}`);
+
+		return item;
+	};
 
 	unique = (_key?: Proto['uniqueParam']): Readonly<Proto['dbType']> | undefined => {
 		if (_key === undefined)

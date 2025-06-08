@@ -160,6 +160,7 @@ export abstract class ServerApi<API extends TypedApi<any, any, any, any>>
 		await this.performPostCallActions();
 	};
 
+
 	private performPostCallActions = async () => {
 		try {
 			await Promise_all_sequentially(this.postCallActions);

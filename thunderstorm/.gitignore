@@ -14,3 +14,7 @@ package-lock.json
 config.ts
 /_oldTest/
 imports-*.svg
+
+src/main/tsconfig.json
+src/test/tsconfig.json
+thunderstorm.txt

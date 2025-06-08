@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/build-and-install",
-  "version": "$THUNDERSTORM_SDK_VERSION",
+  "version": "$THUNDERSTORM_VERSION",
   "description": "",
   "keywords": [
     "TacB0sS",
@@ -28,18 +28,15 @@
     "**/*"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "plop": "npm run plop --prefix ../.."
   },
   "dependencies": {
     "chokidar": "^3.6.0",
-    "neo-blessed": "^0.2.0",
-    "blessed": "^0.1.81",
-    "glob": "^10.3.14",
-    "@nu-art/ts-common": "$THUNDERSTORM_DEPENDENCY_VERSION",
-    "@nu-art/commando": "$THUNDERSTORM_DEPENDENCY_VERSION"
+    "@nu-art/ts-common": "$THUNDERSTORM_DEP_VERSION",
+    "@nu-art/commando": "$THUNDERSTORM_DEP_VERSION"
   },
-  "devDependencies": {
-    "@types/node": "^18.0.0",
-    "@types/blessed": "^0.1.25"
+  "unitConfig": {
+    "type": "typescript-lib"
   }
 }

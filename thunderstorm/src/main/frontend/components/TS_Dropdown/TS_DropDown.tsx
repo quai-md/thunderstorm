@@ -113,6 +113,7 @@ export type Props_DropDown<ItemType> =
 export type MandatoryProps_TS_DropDown<ItemType> = Dropdown_Props<ItemType>
 
 type BasePartialProps_DropDown<T> = {
+	className?: string;
 	inputValue?: string;
 	placeholder?: string;
 	onNoMatchingSelectionForString?: (filterText: string, matchingItems: T[], e: React.KeyboardEvent) => Promise<void> | void;
@@ -415,9 +416,13 @@ export class TS_DropDown<ItemType>
 	}
 
 	private renderHeader = () => {
+		const className = _className(
+			'ts-dropdown__header',
+			this.props.disabled ? 'disabled' : undefined)
+
 		return (
 			<div
-				className="ts-dropdown__header"
+				className={className}
 				onClick={(e) => {
 					stopPropagation(e);
 					if (this.props.disabled) {

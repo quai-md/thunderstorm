@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/conflict-resolution",
-  "version": "$THUNDERSTORM_SDK_VERSION",
+  "version": "$THUNDERSTORM_VERSION",
   "description": "Conflict Resolution",
   "keywords": [
     "TacB0sS",
@@ -39,12 +39,15 @@
     "linkDirectory": true
   },
   "dependencies": {
-    "@nu-art/ts-common": "$THUNDERSTORM_DEPENDENCY_VERSION",
-    "@nu-art/ts-styles": "$THUNDERSTORM_DEPENDENCY_VERSION",
-    "@nu-art/thunderstorm": "$THUNDERSTORM_DEPENDENCY_VERSION",
+    "@nu-art/ts-common": "$THUNDERSTORM_DEP_VERSION",
+    "@nu-art/ts-styles": "$THUNDERSTORM_DEP_VERSION",
+    "@nu-art/thunderstorm": "$THUNDERSTORM_DEP_VERSION",
     "react": "$REACT_PKG_VERSION"
   },
   "devDependencies": {
     "@types/react": "$REACT_TYPES_VERSION"
+  },
+  "unitConfig": {
+    "type": "typescript-lib"
   }
 }
