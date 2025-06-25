@@ -1,4 +1,17 @@
-import {_keys, arrayToMap, Dispatcher, filterInstances, flatArray, Module, MUSTNeverHappenException, PreDB, reduceToMap, RuntimeModules, TypedMap,} from '@nu-art/ts-common';
+import {
+	_keys,
+	arrayToMap,
+	Dispatcher,
+	filterInstances,
+	flatArray,
+	LogLevel,
+	Module,
+	MUSTNeverHappenException,
+	PreDB,
+	reduceToMap,
+	RuntimeModules,
+	TypedMap,
+} from '@nu-art/ts-common';
 import {addRoutes, createQueryServerApi, MemKey_ServerApi, ModuleBE_AppConfigDB, ModuleBE_BaseApi_Class, Storm} from '@nu-art/thunderstorm/backend';
 import {ApiDef_Permissions,} from '../../shared';
 import {CollectSessionData, MemKey_AccountId, ModuleBE_SessionDB, SessionCollectionParam} from '@nu-art/user-account/backend';
@@ -143,6 +156,11 @@ class ModuleBE_Permissions_Class
 			createQueryServerApi(ApiDef_Permissions.v1.createProject, this.__performProjectSetup().processor),
 			// createBodyServerApi(ApiDef_Permissions.v1.connectDomainToRoutes, this.connectDomainToRoutes)
 		]);
+	}
+
+	constructor() {
+		super();
+		this.setMinLevel(LogLevel.Verbose);
 	}
 
 	// __collectPermissionsProjects() {
@@ -358,23 +376,49 @@ class ModuleBE_Permissions_Class
 
 				this.logDebug(_keys(apiModules));
 
+				const shouldPrint = domain.namespace === 'Organization';
+				if (shouldPrint) {
+					this.logVerboseBold('domain.dbNames:', domain.dbNames);
+				}
 				// / I think there is a bug here... comment it and see what happens
 				const _apis = (domain.dbNames || []).map(dbName => {
+					if (shouldPrint)
+						this.logVerboseBold('dbName: ', dbName, 'apiModules', apiModules[dbName]);
+
 					const apiModule = apiModules[dbName];
 					if (!apiModule)
 						throw new MUSTNeverHappenException(`Could not find api module with dbName: ${dbName}`);
 
 					const _apiDefs = apiModule.apiDef!;
+					const isInstallationOrOrder = _apiDefs.v1.query.path.includes('installation') || _apiDefs.v1.query.path.includes('order-configuration');
+					if (isInstallationOrOrder)
+						this.logVerboseBold(_apiDefs);
 					return _keys(_apiDefs).map(_apiDefKey => {
 						const apiDefs = _apiDefs[_apiDefKey];
 						return filterInstances(_keys(apiDefs).map(apiDefKey => {
 							const apiDef = apiDefs[apiDefKey];
+							if (isInstallationOrOrder)
+								this.logVerboseBold(`Start filtering ${apiDef.path}`);
+
 							const accessLevelNameToAssign = defaultLevelsRouteLookupWords[apiDef.path.substring(apiDef.path.lastIndexOf('/') + 1)];
 							const accessLevel = domainNameToLevelNameToDBAccessLevel[domain._id][accessLevelNameToAssign];
-							if (!accessLevel)
+							if (!accessLevel) {
+								if (isInstallationOrOrder)
+									this.logVerboseBold('No access level found for apiDef', apiDef);
+
 								return;
+							}
 
 							const accessId = accessLevel._id;
+							if (isInstallationOrOrder) {
+								this.logVerboseBold('finished', {
+									projectId: project._id,
+									path: apiDef.path,
+									_auditorId,
+									accessLevelIds: [accessId]
+								});
+							}
+
 							return {
 								projectId: project._id,
 								path: apiDef.path,
@@ -386,11 +430,18 @@ class ModuleBE_Permissions_Class
 				});
 				apis.push(...flatArray(_apis));
 
+				if (shouldPrint)
+					this.logVerboseBold("apis: ",apis);
 				return apis;
 			}));
 		}));
 
 		const dbApis = await ModuleBE_PermissionAPIDB.set.all(apisToUpsert);
+
+		const logApisToUpsert = apisToUpsert.filter(api => api.path.includes('installation') || api.path.includes('order-configuration'));
+		const logDbApis = dbApis.filter(api => api.path.includes('installation') || api.path.includes('order-configuration'));
+		this.logVerboseBold('APIs to upsert: ', logApisToUpsert.map(api => api.path).join(', '));
+		this.logVerboseBold('Created APIs: ', logDbApis.map(api => api.path).join(', '));
 		this.logInfoBold(`Created ${dbApis.length} APIs`);
 	}
 
