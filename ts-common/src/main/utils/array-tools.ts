@@ -100,7 +100,7 @@ export function toggleElementInArray<T>(array: T[], item: T) {
 /**
  * Removes all items answering the condition given from array in place
  */
-export async function filterAsync<T>(arr: T[], filter: (parameter: T) => Promise<boolean>): Promise<T[]> {
+export async function filterAsync<T>(arr: T[], filter: (parameter: T) => (Promise<boolean> | boolean)): Promise<T[]> {
 	//const boolArray = await arr.map(item => filter(item)); changed
 	const boolArray = await Promise.all(arr.map(item => filter(item)));
 	return arr.filter((item, index) => boolArray[index]);
@@ -114,18 +114,26 @@ export function findDuplicates<T>(array1: T[], array2: T[]): T[] {
 	return array1.filter(val => array2.indexOf(val) !== -1);
 }
 
+
 const defaultMapper: <T>(item: T) => any = (item) => item;
 
 /**
  remove all duplicates in array
  * */
-export function filterDuplicates<T>(source: T[], mapper: (item: T) => any = defaultMapper): T[] {
+export function filterDuplicates<T>(source: T[], mapper: (keyof T) | ((item: T) => any) = defaultMapper): T[] {
 	if (defaultMapper === mapper)
 		return Array.from(new Set(source));
 
-	const uniqueKeys = new Set(source.map(mapper));
-	return source.filter(item => uniqueKeys.delete(mapper(item)));
+	let _mapper: (item: T) => any;
+	if (typeof mapper === 'function')
+		_mapper = mapper;
+	else
+		_mapper = ((item: T) => item[mapper as keyof T]);
+
+	const uniqueKeys = new Set(source.map(_mapper));
+	return source.filter(item => uniqueKeys.delete(_mapper(item)));
 }
+
 
 /**
  * filter array of all undefined and null

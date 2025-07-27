@@ -34,8 +34,7 @@ import {MemKey_HttpRequestHeaders} from '../../../backend/modules/server/consts'
 import {ApiDef, HttpMethod, QueryApi} from '../../../shared';
 import {AxiosHttpModule} from '../../../backend';
 import {CSVModuleV3} from '@nu-art/ts-common/modules/CSVModuleV3';
-import {ModuleBE_UpgradeCollection} from '../../../backend/modules/upgrade-collection/ModuleBE_UpgradeCollection';
-
+import {ModuleBE_CollectionActions} from '../../../backend/modules/collection-actions/ModuleBE_CollectionActions';
 
 export interface OnModuleCleanupV2 {
 	__onCleanupInvokedV2: () => Promise<void>;
@@ -222,8 +221,7 @@ export class ModuleBE_BackupDocDB_Class
 
 		try {
 			this.logInfo('Upgrading Collections');
-			const dbModuleNames = modules.map(module => module.dbDef.dbKey);
-			await ModuleBE_UpgradeCollection.upgradeAll({collectionsToUpgrade: dbModuleNames});
+			await ModuleBE_CollectionActions.upgrade_All({});
 			this.logInfo('Collections Upgraded');
 		} catch (e: any) {
 			this.logError(e);
@@ -290,8 +288,18 @@ export class ModuleBE_BackupDocDB_Class
 
 		try {
 			this.logInfoBold('Received older backups to delete, count: ' + oldBackupsToDelete.length);
-			await Promise.all(oldBackupsToDelete.map(async oldDoc => (filterInstances([oldDoc.metadataPath, oldDoc.backupPath, oldDoc.firebasePath])
-				.map(async path => (await bucket.getFile(path)).delete()))));
+			const backupDeleteOperations = oldBackupsToDelete
+				.map(doc => filterInstances([doc.metadataPath, doc.backupPath, doc.firebasePath]))
+				.flat()
+				.map(path => async () => {
+					try {
+						const file = await bucket.getFile(path);
+						file.delete();
+					} catch (err: any) {
+						this.logError(`Failed deleting file at path: ${path}`, err);
+					}
+				});
+			await Promise.all(backupDeleteOperations);
 			await this.collection.delete.all(oldBackupsToDelete);
 			this.logInfoBold('Successfully deleted old backups');
 		} catch (err: any) {

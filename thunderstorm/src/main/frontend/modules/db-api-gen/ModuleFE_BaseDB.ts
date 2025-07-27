@@ -28,10 +28,12 @@ import {
 	dbObjectToId,
 	DBProto,
 	deleteKeysObject,
-	exists, filterDuplicates,
+	exists,
+	filterDuplicates,
 	IndexKeys,
 	InvalidResult,
 	KeysOfDB_Object,
+	lastElement,
 	Logger,
 	LogLevel,
 	Module,
@@ -92,12 +94,16 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 		this.dataStatus = DataStatus.NoData;
 		this.setDefaultConfig(config as Config);
 		this.cache = customMemCreators?.memCache ? customMemCreators?.memCache(config, this) : new MemCache<Proto>(this, config.dbConfig.uniqueKeys);
-		this.IDB = customMemCreators?.idbCache ? customMemCreators?.idbCache(this.config.dbConfig, this.config.key) : new IDBCache<Proto>(this.config.dbConfig, this.config.key);
+		this.IDB = customMemCreators?.idbCache
+			? customMemCreators?.idbCache(this.config.dbConfig, this.config.key)
+			: new IDBCache<Proto>(this.config.dbConfig, this.config.key);
 		this.upgradeInstances.bind(this);
 		this.registerVersionUpgradeProcessor.bind(this);
 	}
 
 	protected init() {
+		super.init();
+		this.IDB.init();
 		this.attachOnLastSyncUpdatedListener();
 	}
 
@@ -124,6 +130,12 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 			this.logVerbose(`No registered upgrade processors for this module ${this.dbDef.dbKey}`);
 			return instances;
 		}
+
+		//Make sure all items start out with a version
+		instances.forEach(instance => {
+			if (!instance._v)
+				instance._v = lastElement(this.config.versions);
+		});
 
 		let instancesToSave: Proto['dbType'][] = [];
 		for (let i = this.config.versions.length - 1; i >= 0; i--) {
@@ -226,6 +238,7 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 	};
 
 	public onEntriesUpdated = async (items: Proto['dbType'][], updateIDBLastSynced: boolean = true): Promise<void> => {
+		items = await this.upgradeInstances(items);
 		await this.IDB.syncIndexDb(items);
 		// @ts-ignore
 		this.cache.onEntriesUpdated(items);
@@ -239,10 +252,12 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 	};
 
 	public onEntryUpdated = async (item: Proto['dbType'], original: Proto['uiType'], updateIDBLastSynced: boolean = true): Promise<void> => {
+		item = (await this.upgradeInstances([item]))[0];
 		return this.onEntryUpdatedImpl(original._id ? EventType_Update : EventType_Create, item, updateIDBLastSynced);
 	};
 
 	protected onEntryPatched = async (item: Proto['dbType'], updateIDBLastSynced: boolean = true): Promise<void> => {
+		item = (await this.upgradeInstances([item]))[0];
 		return this.onEntryUpdatedImpl(EventType_Patch, item, updateIDBLastSynced);
 	};
 
@@ -289,6 +304,7 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 	};
 
 	protected onQueryReturned = async (toUpdate: Proto['dbType'][], toDelete: DB_Object[] = []): Promise<void> => {
+		toUpdate = await this.upgradeInstances(toUpdate);
 		await this.IDB.syncIndexDb(toUpdate, toDelete);
 		// @ts-ignore
 		this.cache.onEntriesUpdated(toUpdate);
@@ -305,37 +321,48 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 export class IDBCache<Proto extends DBProto<any>>
 	extends Logger {
 
-	readonly storeWrapper: IndexedDB_Store<Proto>;
+	readonly storeWrapper!: IndexedDB_Store<Proto>;
 	protected lastSync: StorageKey<number>;
 	protected readonly lastVersion: StorageKey<string>;
+	private dbConfig: DBConfigV3<Proto>;
 
 	constructor(dbConfig: DBConfigV3<Proto>, dbKey: string) {
 		super(`indexdb-${dbKey}`);
-		const currentVersion = dbConfig.version[0];
+		this.dbConfig = dbConfig;
 		this.setMinLevel(LogLevel.Verbose);
 		this.lastSync = new StorageKey<number>('last-sync--' + dbKey);
 		this.lastVersion = new StorageKey<string>('last-version--' + dbKey);
-		const onOpenedCallback = () => {
+	}
+
+	init() {
+		const currentVersion = this.dbConfig.version[0];
+
+		const onOpenedCallback = async () => {
 			const previousVersion = this.lastVersion.get();
 			this.lastVersion.set(currentVersion);
 
-			this.storeWrapper.exists().then(exists => {
-				if (!exists) {
-					this.logInfo(`Database doesn't exist.. reset last sync timestamp`);
-					this.lastSync.delete();
-				}
-			});
+			const exists = await this.storeWrapper.exists();
+			if (!exists) {
+				this.logInfo(`Database doesn't exist.. reset last sync timestamp`);
+				this.lastSync.delete();
+			}
 
-			if (!previousVersion || previousVersion === currentVersion)
+			if (exists && (!previousVersion || previousVersion === currentVersion))
 				return;
 
 			this.lastSync.delete();
 			this.logInfo(`Cleaning up & Sync...`);
-			this.clear()
-				.then(() => this.logInfo(`Cleaning up & Sync: Completed`))
-				.catch((e) => this.logError(`Cleaning up & Sync: ERROR`, e));
+			try {
+				await this.clear();
+				this.logInfo(`Cleaning up & Sync: Completed`);
+			} catch (e: any) {
+				this.logError(`Cleaning up & Sync: ERROR`, e);
+			}
 		};
-		this.storeWrapper = ModuleFE_IDBManager.register(dbConfig, onOpenedCallback);
+
+
+		// @ts-ignore
+		this['storeWrapper'] = ModuleFE_IDBManager.register(this.dbConfig, onOpenedCallback);
 	}
 
 	protected setLastSyncTimestampStorageKey(newLastSyncStorageKey: StorageKey<number>) {
