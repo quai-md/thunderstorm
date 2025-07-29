@@ -1,6 +1,6 @@
 import * as React from 'react';
 import './ATS_ConflictResolution.scss';
-import { ModuleFE_BaseApi, ComponentSync, AppToolsScreen } from '@nu-art/thunderstorm/frontend';
+import { AppToolsScreen, ComponentSync, ModuleFE_BaseApi } from '@nu-art/thunderstorm/frontend';
 type State = {
     upgradableModules: ModuleFE_BaseApi<any, any>[];
     selectedModule?: ModuleFE_BaseApi<any>;

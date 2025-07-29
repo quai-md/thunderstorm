@@ -15,13 +15,23 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ATS_ConflictResolution = void 0;
@@ -30,6 +40,7 @@ const ts_common_1 = require("@nu-art/ts-common");
 require("./ATS_ConflictResolution.scss");
 const frontend_1 = require("@nu-art/thunderstorm/frontend");
 const ModuleFE_CollectionActions_1 = require("@nu-art/thunderstorm/frontend/modules/ModuleFE_CollectionActions");
+const ModuleFE_ConflictResolution_1 = require("../../_modules/ModuleFE_ConflictResolution");
 class ATS_ConflictResolution extends frontend_1.ComponentSync {
     constructor() {
         super(...arguments);
@@ -46,7 +57,8 @@ class ATS_ConflictResolution extends frontend_1.ComponentSync {
                 dbKey: dbKey,
                 itemIds: [itemId]
             }).setTimeout(2 * ts_common_1.Minute).executeSync();
-            this.logWarning(response);
+            if (response.dependencies)
+                ModuleFE_ConflictResolution_1.ModuleFE_ConflictResolution.showDependencies(response.dependencies);
         };
     }
     deriveStateFromProps(nextProps, state) {
@@ -66,6 +78,7 @@ class ATS_ConflictResolution extends frontend_1.ComponentSync {
             React.createElement(frontend_1.Button, { key: 'upgrade-all-test', onClick: this.checkUsage }, "Check Usage"));
     }
 }
+exports.ATS_ConflictResolution = ATS_ConflictResolution;
 _a = ATS_ConflictResolution;
 ATS_ConflictResolution.screen = {
     name: 'Conflict Resolution',
@@ -73,5 +86,4 @@ ATS_ConflictResolution.screen = {
     renderer: _a,
     group: frontend_1.ATS_Backend,
 };
-exports.ATS_ConflictResolution = ATS_ConflictResolution;
 //# sourceMappingURL=ATS_ConflictResolution.js.map
