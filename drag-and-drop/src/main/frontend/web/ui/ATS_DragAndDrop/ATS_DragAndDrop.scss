@@ -26,7 +26,7 @@
         }
       }
 
-      .ts-dnd__dropzone {
+      .ts-dnd__drag-zone {
         height: 0;
         flex-grow: 1;
         width: 100%;
@@ -49,7 +49,7 @@
       }
     }
 
-    .ats-dnd-test__item {
+    .ts-dnd__drag-item {
       width: 100%;
       min-height: 150px;
       border: 2px solid black;

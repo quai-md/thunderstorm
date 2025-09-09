@@ -1,5 +1,4 @@
 import {UniqueId} from '@nu-art/ts-common';
-import { DragContext } from '../../../core';
 
 export const DNDTestItemStatus_Ready = 'ready';
 export const DNDTestItemStatus_InProgress = 'in-progress';
@@ -12,5 +11,3 @@ export type DNDTest_Item = {
 	label: string;
 	status: DNDTest_Item_Status;
 }
-
-export type DNDTest_DragContext = DragContext<'test', DNDTest_Item>;

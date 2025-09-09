@@ -4,7 +4,6 @@ import {DragZone} from './DragZone';
 import {EditableItem} from '@nu-art/thunderstorm/frontend';
 import {DragItem} from './DragItem';
 import * as React from 'react';
-import {isDragItem} from './consts';
 
 type ComponentWithRef = React.ReactElement & { ref?: React.RefObject<any> }
 
@@ -13,6 +12,7 @@ export class DragContext<T extends TS_Object = TS_Object>
 
 	//######################### Properties #########################
 
+	// @ts-ignore
 	private readonly key: string;
 	private dragEvent?: DragEvent<T>;
 	private readonly dropZones: DragZone<T>[] = [];
@@ -51,8 +51,7 @@ export class DragContext<T extends TS_Object = TS_Object>
 		for (let i = 0; i < children.length; i++) {
 			const child = children[i] as ComponentWithRef;
 			const instance = child.ref?.current as DragItem<T> | undefined;
-			if (!isDragItem(instance)) continue;
-
+			if (!instance) continue;
 			const rect = instance.getRect();
 			const overlap = this.getOverlapRect(draggableRect, rect);
 			if (!overlap) continue;
@@ -97,8 +96,7 @@ export class DragContext<T extends TS_Object = TS_Object>
 				target: {zone: originZone, index: originIndex},
 			};
 		},
-
-		updateTarget: (x: number, y: number) => {
+		updateTarget: () => {
 			if (!this.dragEvent)
 				return;
 
@@ -110,11 +108,11 @@ export class DragContext<T extends TS_Object = TS_Object>
 			this.dragEvent.target = {zone, index};
 			this.logDebug(`Drag target updated: zone=${zone.getId()} index=${index}`);
 		},
-
 		end: async () => {
 			if (!this.dragEvent)
 				return;
 
+			this.logInfo(this.dragEvent);
 			const {target} = this.dragEvent;
 			await target.zone.onDrop(this.dragEvent);
 			this.dragEvent = undefined;
