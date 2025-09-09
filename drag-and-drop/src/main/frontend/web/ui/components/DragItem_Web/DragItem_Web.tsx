@@ -6,10 +6,13 @@ import {DragEventRect} from '../../../../core';
 export class DragItem_Web<T extends TS_Object>
 	extends DragItem<T, HTMLDivElement> {
 
+	private offsetX = 0;
+	private offsetY = 0;
+
 	//######################### Abstract Implementation #########################
 
 	public getRect(): DragEventRect {
-		const rect = this.ref.current?.getBoundingClientRect();
+		const rect = this.innerRef.current?.getBoundingClientRect();
 		if (!rect)
 			throw new BadImplementationException('Could not get bounding client rect for drag item!');
 
@@ -24,7 +27,7 @@ export class DragItem_Web<T extends TS_Object>
 		const {editable, context, ...props} = this.props;
 		return {
 			...props,
-			ref: this.ref,
+			ref: this.innerRef,
 			className: 'ts-dnd__drag-item',
 			onMouseDown: this.onMouseDown,
 		};
@@ -37,14 +40,17 @@ export class DragItem_Web<T extends TS_Object>
 		window.addEventListener('mouseup', this.onMouseUp);
 
 		//Assign new item style
-		const element = this.ref.current;
+		const element = this.innerRef.current;
 		if (!element)
 			throw new ThisShouldNotHappenException('How did we start an event without the element???');
 
 		const rect = element.getBoundingClientRect();
+		this.offsetX = e.clientX - rect.left;
+		this.offsetY = e.clientY - rect.top;
+
 		element.style.position = 'fixed';
-		element.style.top = `${rect.top}px`;
-		element.style.left = `${rect.left}px`;
+		element.style.left = `${e.clientX - this.offsetX}px`;
+		element.style.top = `${e.clientY - this.offsetY}px`;
 		element.style.width = `${rect.width}px`;
 		element.style.height = `${rect.height}px`;
 	};
@@ -53,12 +59,12 @@ export class DragItem_Web<T extends TS_Object>
 		const {context} = this.props;
 		context.event.updateTarget();
 		//Assign new item style
-		const element = this.ref.current;
+		const element = this.innerRef.current;
 		if (!element)
 			throw new ThisShouldNotHappenException('How did we update an event without the element???');
 
-		element.style.left = `${e.clientX}px`;
-		element.style.top = `${e.clientY}px`;
+		element.style.left = `${e.clientX - this.offsetX}px`;
+		element.style.top = `${e.clientY - this.offsetY}px`;
 	};
 
 	private onMouseUp = async () => {
@@ -67,7 +73,9 @@ export class DragItem_Web<T extends TS_Object>
 		window.removeEventListener('mousemove', this.onMouseMove);
 		window.removeEventListener('mouseup', this.onMouseUp);
 
-		const element = this.ref.current;
+		const element = this.innerRef.current;
+		this.offsetX = 0;
+		this.offsetY = 0;
 		if (element) {
 			//If the element exists we did not unmount it,
 			// so it is still in the same spot it started in and therefore should lose all the style attributes

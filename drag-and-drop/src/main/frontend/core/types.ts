@@ -2,6 +2,7 @@ import {TS_Object} from '@nu-art/ts-common';
 import {EditableItem} from '@nu-art/thunderstorm/frontend';
 import {DragItem} from './DragItem';
 import {DragZone} from './DragZone';
+import {Component} from 'react';
 
 export type DragEvent<T extends TS_Object> = {
 	draggable: DragItem<T>;
@@ -22,3 +23,9 @@ export type DragEventRect = {
 	width: number;
 	height: number;
 }
+
+export interface DragContextDataListener {
+	__onDragContextUpdated: VoidFunction;
+}
+
+export type DragContextDataListenerComponent = Component & DragContextDataListener;

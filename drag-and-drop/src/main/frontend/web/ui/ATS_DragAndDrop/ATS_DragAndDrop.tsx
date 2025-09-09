@@ -9,6 +9,7 @@ import {DragZone_Web} from '../components/DragZone_Web/DragZone_Web';
 import {DragItem_Web} from '../components/DragItem_Web/DragItem_Web';
 import {DragContext} from '../../../core/DragContext';
 import {DragEvent} from '../../../core';
+import {DragDebugMenu_Web} from '../components/DragDebugWindow_Web/DragDebugMenu_Web';
 
 type Props = object;
 
@@ -73,6 +74,7 @@ export class ATS_DragAndDrop
 		return <LL_V_L id={'ats-dnd-test'}>
 			{TS_AppTools.renderPageHeader('Drag And Drop Test')}
 			{this.render_Stage()}
+			<DragDebugMenu_Web context={this.dragContext}/>
 		</LL_V_L>;
 	}
 
@@ -105,7 +107,13 @@ export class ATS_DragAndDrop
 			editable={editable}
 			context={this.dragContext}
 		>
-			<button className={'ats-dnd-test__item__id'} onClick={() => ModuleFE_Thunderstorm.copyToClipboard(item.id)}>{item.id}</button>
+			<button
+				className={'ats-dnd-test__item__id'}
+				onClick={e => {
+					e.stopPropagation();
+					ModuleFE_Thunderstorm.copyToClipboard(item.id);
+				}}
+			>{item.id}</button>
 			<div className={'ats-dnd-test__item__label'}>{item.label}</div>
 		</DragItem_Web>;
 	};

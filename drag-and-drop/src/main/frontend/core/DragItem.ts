@@ -15,7 +15,7 @@ export abstract class DragItem<T extends TS_Object, RefType = any>
 
 	static readonly __brand = Brand_DragItem;
 
-	public ref: React.RefObject<RefType> = React.createRef();
+	public innerRef: React.RefObject<RefType> = React.createRef();
 
 	public abstract getRect(): DragEventRect;
 
