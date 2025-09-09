@@ -18,16 +18,19 @@ type Props = {
 	initialCollapsed?: boolean;
 	//Additional Props
 	className?: string;
+	style?: React.CSSProperties;
 	id?: string;
-	onHeaderRightClick?: (e: React.MouseEvent) => void;
+	onHeaderRightClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
 	forceUpdate?: boolean; //Force component to update when parent component updates. essential if inner components receive props
 	animated?: boolean;
+	innerRef?: React.RefObject<HTMLDivElement>;
 }
 
 type State = {
 	collapsed: boolean;
 	animated: boolean;
 	className?: string;
+	style?: React.CSSProperties;
 	id?: string;
 }
 
@@ -40,6 +43,7 @@ export class TS_CollapsableContainerV2
 		state.collapsed = nextProps.collapsed ?? this.state?.collapsed ?? (nextProps.initialCollapsed ?? true);
 		state.animated = !!nextProps.animated;
 		state.className = nextProps.className;
+		state.style = nextProps.style;
 		state.id = nextProps.id;
 		return state;
 	}
@@ -70,7 +74,12 @@ export class TS_CollapsableContainerV2
 			this.state.animated && 'animated',
 			this.state.className,
 		);
-		return <LL_V_L id={this.state.id} className={className}>
+		return <LL_V_L
+			id={this.state.id}
+			className={className}
+			style={this.state.style}
+			innerRef={this.props.innerRef}
+		>
 			{this.render_Header()}
 			{this.render_Content()}
 		</LL_V_L>;
@@ -78,8 +87,8 @@ export class TS_CollapsableContainerV2
 
 	private render_Header() {
 		return <LL_H_C className={'ts-collapsable-container-v2__header'} onClick={this.toggleCollapse} onContextMenu={this.props.onHeaderRightClick}>
-			<div className={'ts-collapsable-container-v2__header-content'}>{resolveContent(this.props.headerRenderer)}</div>
 			{this.render_Header_Caret()}
+			<div className={'ts-collapsable-container-v2__header-content'}>{resolveContent(this.props.headerRenderer)}</div>
 		</LL_H_C>;
 	}
 
