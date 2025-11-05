@@ -33,14 +33,33 @@ import {
 	TypedKeyValue,
 	TypedMap
 } from '@nu-art/ts-common';
-import {addRoutes, createBodyServerApi, ModuleBE_BaseApi_Class, ModuleBE_BaseDB, ModuleBE_SyncManager, ServerApi_Middleware} from '@nu-art/thunderstorm/backend';
+import {
+	addRoutes,
+	createBodyServerApi,
+	ModuleBE_BaseApi_Class,
+	ModuleBE_BaseDB,
+	ModuleBE_SyncManager,
+	ServerApi_Middleware
+} from '@nu-art/thunderstorm/backend';
 import {ApiModule, HttpMethod} from '@nu-art/thunderstorm';
 import {CollectSessionData, MemKey_AccountEmail} from '@nu-art/user-account/backend';
 import {ApiDef_PermissionsAssert, Request_AssertApiForUser} from '../../shared';
-import {MemKey_HttpRequestBody, MemKey_HttpRequestMethod, MemKey_HttpRequestQuery, MemKey_HttpRequestUrl} from '@nu-art/thunderstorm/backend/modules/server/consts';
+import {
+	MemKey_HttpRequestBody,
+	MemKey_HttpRequestMethod,
+	MemKey_HttpRequestQuery,
+	MemKey_HttpRequestUrl
+} from '@nu-art/thunderstorm/backend/modules/server/consts';
 import {MemKey_UserPermissions, SessionKey_Permissions_BE} from '../consts';
 import {PermissionKey_BE} from '../PermissionKey_BE';
-import {Base_AccessLevel, DB_PermissionAccessLevel, DB_PermissionAPI, DomainToLevelValueMap, ModuleBE_PermissionAccessLevelDB, ModuleBE_PermissionAPIDB} from '../_entity';
+import {
+	Base_AccessLevel,
+	DB_PermissionAccessLevel,
+	DB_PermissionAPI,
+	DomainToLevelValueMap,
+	ModuleBE_PermissionAccessLevelDB,
+	ModuleBE_PermissionAPIDB
+} from '../_entity';
 
 
 export type UserCalculatedAccessLevel = { [domainId: string]: number };
@@ -310,6 +329,9 @@ export class ModuleBE_PermissionsAssert_Class
 			this._keys[key] = true;
 		});
 	}
+
+	public getUserPermissions = () => MemKey_UserPermissions.get();
+
 
 	private isStrictMode() {
 		return !!this.config.strictMode;
