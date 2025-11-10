@@ -56,19 +56,5 @@
     "@types/http-proxy": "1.17.14",
     "teeny-request": "~7.2.0",
     "@types/ws": "^8.5.5"
-  },
-  "unitConfig": {
-    "type": "typescript-lib"
-  },
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./index.d.ts",
-      "import": "./index.js"
-    },
-    "./*": {
-      "types": "./*.d.ts",
-      "import": "./*.js"
-    }
   }
 }

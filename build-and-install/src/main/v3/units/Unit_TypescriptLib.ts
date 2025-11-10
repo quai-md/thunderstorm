@@ -498,16 +498,17 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 	async convertToESM() {
 		const ignore = ['node_modules', '.git', 'dist', '.gitignore', 'build'];
 		const specificFiles = [CONST_PackageJSONTemplate];
+		const allowedEMSExtensions = ['.js', '.json', '.svg'];
 		const fileExtensions = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs'];
 		const units = arrayToMap(this.runtimeContext.childUnits, unit => unit.config.key);
 
 		const toESM = async (pathTofile: string, originImportPath: string) => {
 			originImportPath = originImportPath.replace(/\/+/g, '/');
-			if (originImportPath.endsWith('.js'))
-				return originImportPath;
 
-			if (originImportPath.endsWith('.json'))
-				return originImportPath;
+			for (const extension of allowedEMSExtensions) {
+				if (originImportPath.endsWith(extension))
+					return originImportPath;
+			}
 
 			for (const extension of fileExtensions) {
 				if (!originImportPath.endsWith(extension))
