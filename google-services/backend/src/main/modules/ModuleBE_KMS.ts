@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import {Module, MUSTNeverHappenException, ThisShouldNotHappenException} from '@nu-art/ts-common';
+import {ImplementationMissingException, Module, MUSTNeverHappenException, ThisShouldNotHappenException} from '@nu-art/ts-common';
 import {KeyManagementServiceClient} from '@google-cloud/kms';
 
 export type ModuleBE_KMS_Config = {
@@ -63,7 +63,8 @@ export class ModuleBE_KMS_Class
 	private get parent() {
 		const {projectId, locationId} = this.config;
 		if (!projectId)
-			throw new MUSTNeverHappenException('ModuleBE_KMS requires config.projectId');
+			throw new ImplementationMissingException('ModuleBE_KMS requires config.projectId');
+
 		return this.client.locationPath(projectId, locationId ?? DefaultLocationId);
 	}
 
