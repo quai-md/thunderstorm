@@ -15,30 +15,27 @@
  */
 
 import {ImplementationMissingException, Module, MUSTNeverHappenException, ThisShouldNotHappenException} from '@nu-art/ts-common';
-import {KeyManagementServiceClient} from '@google-cloud/kms';
+import {KeyManagementServiceClient, protos} from '@google-cloud/kms';
 
 export type ModuleBE_KMS_Config = {
-	projectId: string;
+	projectId?: string;
 	locationId?: string;
 };
 
-const DefaultLocationId = 'us-east1';
+/** Optional per-request context for project/location; takes precedence over module config and env. */
+export type KMSContext = {
+	projectId?: string;
+	locationId?: string;
+};
 
-/** Cloud KMS CryptoKey.CryptoKeyPurpose enum values (for callers). */
-export const CryptoKeyPurpose = {
-	ASYMMETRIC_SIGN: 1,
-	ASYMMETRIC_DECRYPT: 5,
-	MAC: 9,
-	CRYPTO_KEY_PURPOSE_UNSPECIFIED: 0
-} as const;
+/** Default KMS location when not provided via context or config (GCP multi-region "global"). */
+const DefaultLocationId = 'global';
 
-/** Cloud KMS CryptoKeyVersion.CryptoKeyVersionAlgorithm enum values (for callers). */
-export const CryptoKeyVersionAlgorithm = {
-	RSA_SIGN_PKCS1_2048_SHA256: 5,
-	RSA_SIGN_PKCS1_3072_SHA256: 6,
-	RSA_SIGN_PKCS1_4096_SHA256: 7
-	// add others as needed
-} as const;
+/** Re-export KMS purpose enum from package (use for ensureCryptoKey etc.). */
+export const CryptoKeyPurpose = protos.google.cloud.kms.v1.CryptoKey.CryptoKeyPurpose;
+
+/** Re-export KMS algorithm enum from package (use for ensureCryptoKey etc.). */
+export const CryptoKeyVersionAlgorithm = protos.google.cloud.kms.v1.CryptoKeyVersion.CryptoKeyVersionAlgorithm;
 
 export type EnsureCryptoKeyOptions = {
 	purpose: number;
@@ -56,51 +53,55 @@ export class ModuleBE_KMS_Class
 
 	protected init() {
 		super.init();
-		this.setDefaultConfig({locationId: DefaultLocationId} as Partial<ModuleBE_KMS_Config>);
 		this.client = new KeyManagementServiceClient();
 	}
 
-	private get parent() {
-		const {projectId, locationId} = this.config;
+	private resolveContext(requestContext?: KMSContext): { projectId: string; locationId: string } {
+		const projectId = requestContext?.projectId
+			?? this.config.projectId
+			?? process.env.GCP_PROJECT_ID
+			?? process.env.GCLOUD_PROJECT;
+
 		if (!projectId)
-			throw new ImplementationMissingException('ModuleBE_KMS requires config.projectId');
+			throw new ImplementationMissingException(
+				'KMS projectId not provided via request context, module config, or env (GCP_PROJECT_ID / GCLOUD_PROJECT)'
+			);
 
-		return this.client.locationPath(projectId, locationId ?? DefaultLocationId);
+		const locationId = requestContext?.locationId
+			?? this.config.locationId
+			?? DefaultLocationId;
+
+		return { projectId, locationId };
 	}
 
-	private keyRingPath(keyRingId: string): string {
-		return this.client.keyRingPath(this.config.projectId!, this.config.locationId ?? DefaultLocationId, keyRingId);
+	private getParent(ctx: { projectId: string; locationId: string }): string {
+		return this.client.locationPath(ctx.projectId, ctx.locationId);
 	}
 
-	private cryptoKeyPath(keyRingId: string, keyId: string): string {
-		return this.client.cryptoKeyPath(
-			this.config.projectId!,
-			this.config.locationId ?? DefaultLocationId,
-			keyRingId,
-			keyId
-		);
+	private keyRingPath(ctx: { projectId: string; locationId: string }, keyRingId: string): string {
+		return this.client.keyRingPath(ctx.projectId, ctx.locationId, keyRingId);
 	}
 
-	private cryptoKeyVersionPath(keyRingId: string, keyId: string, versionId: string): string {
-		return this.client.cryptoKeyVersionPath(
-			this.config.projectId!,
-			this.config.locationId ?? DefaultLocationId,
-			keyRingId,
-			keyId,
-			versionId
-		);
+	private cryptoKeyPath(ctx: { projectId: string; locationId: string }, keyRingId: string, keyId: string): string {
+		return this.client.cryptoKeyPath(ctx.projectId, ctx.locationId, keyRingId, keyId);
+	}
+
+	private cryptoKeyVersionPath(ctx: { projectId: string; locationId: string }, keyRingId: string, keyId: string, versionId: string): string {
+		return this.client.cryptoKeyVersionPath(ctx.projectId, ctx.locationId, keyRingId, keyId, versionId);
 	}
 
 	/** Create key ring if it does not exist. Idempotent. */
-	public ensureKeyRing = async (keyRingId: string): Promise<void> => {
-		const parent = this.parent;
+	public ensureKeyRing = async (keyRingId: string, context?: KMSContext): Promise<void> => {
+		const ctx = this.resolveContext(context);
+		const parent = this.getParent(ctx);
 		try {
-			await this.client.getKeyRing({name: this.keyRingPath(keyRingId)});
+			await this.client.getKeyRing({name: this.keyRingPath(ctx, keyRingId)});
 			return;
 		} catch (err: any) {
 			if (err.code !== 5) // NOT_FOUND
 				throw new ThisShouldNotHappenException(`Failed to get key ring ${keyRingId}`, err);
 		}
+
 		await this.client.createKeyRing({
 			parent,
 			keyRingId,
@@ -109,17 +110,18 @@ export class ModuleBE_KMS_Class
 	};
 
 	/** Create crypto key with given purpose and algorithm if it does not exist. Idempotent. */
-	public ensureCryptoKey = async (keyRingId: string, keyId: string, options: EnsureCryptoKeyOptions): Promise<void> => {
-		const parent = this.keyRingPath(keyRingId);
+	public ensureCryptoKey = async (keyRingId: string, keyId: string, options: EnsureCryptoKeyOptions, context?: KMSContext): Promise<void> => {
+		const ctx = this.resolveContext(context);
+		const parent = this.keyRingPath(ctx, keyRingId);
 		try {
-			await this.client.getCryptoKey({name: this.cryptoKeyPath(keyRingId, keyId)});
+			await this.client.getCryptoKey({name: this.cryptoKeyPath(ctx, keyRingId, keyId)});
 			const [versions] = await this.client.listCryptoKeyVersions({
-				parent: this.cryptoKeyPath(keyRingId, keyId),
+				parent: this.cryptoKeyPath(ctx, keyRingId, keyId),
 				filter: 'state=ENABLED'
 			});
 			if (versions.length === 0)
 				await this.client.createCryptoKeyVersion({
-					parent: this.cryptoKeyPath(keyRingId, keyId),
+					parent: this.cryptoKeyPath(ctx, keyRingId, keyId),
 					cryptoKeyVersion: {}
 				});
 			return;
@@ -138,9 +140,10 @@ export class ModuleBE_KMS_Class
 	};
 
 	/** Create a new key version for rotation. Old versions remain until manually destroyed. */
-	public createNewKeyVersion = async (keyRingId: string, keyId: string): Promise<string> => {
+	public createNewKeyVersion = async (keyRingId: string, keyId: string, context?: KMSContext): Promise<string> => {
+		const ctx = this.resolveContext(context);
 		const [version] = await this.client.createCryptoKeyVersion({
-			parent: this.cryptoKeyPath(keyRingId, keyId),
+			parent: this.cryptoKeyPath(ctx, keyRingId, keyId),
 			cryptoKeyVersion: {}
 		});
 		const versionId = version.name?.split('/').pop();
@@ -150,9 +153,10 @@ export class ModuleBE_KMS_Class
 	};
 
 	/** List enabled key versions (newest first). */
-	public listKeyVersions = async (keyRingId: string, keyId: string): Promise<Array<{ name?: string | null }>> => {
+	public listKeyVersions = async (keyRingId: string, keyId: string, context?: KMSContext): Promise<Array<{ name?: string | null }>> => {
+		const ctx = this.resolveContext(context);
 		const [versions] = await this.client.listCryptoKeyVersions({
-			parent: this.cryptoKeyPath(keyRingId, keyId),
+			parent: this.cryptoKeyPath(ctx, keyRingId, keyId),
 			filter: 'state=ENABLED'
 		});
 		// Sort by version number descending (newest first)
@@ -164,9 +168,10 @@ export class ModuleBE_KMS_Class
 	};
 
 	/** Get PEM-encoded public key for a key version. */
-	public getPublicKey = async (keyRingId: string, keyId: string, versionId: string): Promise<string> => {
+	public getPublicKey = async (keyRingId: string, keyId: string, versionId: string, context?: KMSContext): Promise<string> => {
+		const ctx = this.resolveContext(context);
 		const [pub] = await this.client.getPublicKey({
-			name: this.cryptoKeyVersionPath(keyRingId, keyId, versionId)
+			name: this.cryptoKeyVersionPath(ctx, keyRingId, keyId, versionId)
 		});
 		if (!pub.pem)
 			throw new MUSTNeverHappenException(`Public key has no pem for ${keyRingId}/${keyId}/${versionId}`);
@@ -174,9 +179,10 @@ export class ModuleBE_KMS_Class
 	};
 
 	/** Sign a digest with the given key version. Digest must be SHA-256 (32 bytes). */
-	public asymmetricSign = async (keyRingId: string, keyId: string, versionId: string, digest: KMSDigest): Promise<Buffer> => {
+	public asymmetricSign = async (keyRingId: string, keyId: string, versionId: string, digest: KMSDigest, context?: KMSContext): Promise<Buffer> => {
+		const ctx = this.resolveContext(context);
 		const [response] = await this.client.asymmetricSign({
-			name: this.cryptoKeyVersionPath(keyRingId, keyId, versionId),
+			name: this.cryptoKeyVersionPath(ctx, keyRingId, keyId, versionId),
 			digest
 		});
 		if (!response.signature)
