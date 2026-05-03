@@ -53,7 +53,7 @@ export const sessionContentJWT: SessionDecoder = async (sessionAsString: string)
 };
 
 class ModuleFE_Session_Class
-	extends Module
+	extends Module<{ keepJwtAfterInit?: boolean }>
 	implements OnStorageKeyChangedListener, OnAuthRequiredListener {
 
 	// @ts-ignore
@@ -90,7 +90,8 @@ class ModuleFE_Session_Class
 		const prevSessionId = this.StorageKey_SessionId.get();
 		let sessionId = ModuleFE_RoutingV2.getQueryParameter(QueryParam_SessionId);
 		if (sessionId) {
-			setTimeout(() => ModuleFE_RoutingV2.removeQueryParam(QueryParam_SessionId), 5000);
+			if (!this.config.keepJwtAfterInit)
+				setTimeout(() => ModuleFE_RoutingV2.removeQueryParam(QueryParam_SessionId), 5000);
 			this.StorageKey_SessionId.set(sessionId);
 			if (sessionId === prevSessionId)
 				this.onSessionUpdated(sessionId)
