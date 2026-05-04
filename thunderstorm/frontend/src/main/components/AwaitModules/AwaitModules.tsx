@@ -16,6 +16,7 @@ type Props = React.PropsWithChildren<{
 	modules: ResolvableContent<(ModuleFE_BaseDB<any>)[]>;
 	customLoader?: ResolvableContent<React.ReactNode, [AwaitModule_LoaderProps]>;
 	customMissingPermissionsRenderer?: ResolvableContent<React.ReactNode, [{ modules: ModuleFE_BaseDB<any>[] }]>;
+	Component?: ResolvableContent<React.ReactNode>;
 }>;
 
 type State = {
@@ -105,7 +106,7 @@ export class AwaitModules
 		const missingPermissionModules = this.getMissingPermissionModules();
 		if (this.props.customMissingPermissionsRenderer)
 			return resolveContent(this.props.customMissingPermissionsRenderer, {modules: missingPermissionModules});
-		
+
 		return <div className={'ts-await-modules'}>
 			<LL_V_L className={'missing-permission-modules'}>
 				<h1>Missing Permissions For The Following Databases</h1>
@@ -160,6 +161,9 @@ export class AwaitModules
 
 		if (!this.state.ready)
 			return this.renderLoader();
+
+		if (this.props.Component)
+			return resolveContent(this.props.Component);
 
 		return this.props.children;
 	}
