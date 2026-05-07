@@ -1,9 +1,9 @@
 import {FC, MouseEvent} from 'react';
 import './Component_WorkHub_Tab.scss';
-import {_className, LL_H_C} from '@nu-art/thunderstorm-frontend';
+import {_className, LL_H_C, openContent} from '@nu-art/thunderstorm-frontend';
 import {exists} from '@nu-art/ts-common';
 import {WorkHubTab} from '@nu-art/work-hub-shared';
-import { ModuleFE_WorkHub } from '../../../../_module/index.js';
+import {ModuleFE_WorkHub} from '../../../../_module/index.js';
 
 type Props = {
 	tab: WorkHubTab;
@@ -25,7 +25,7 @@ const onTabClick = (e: MouseEvent<HTMLDivElement>, tabId: string) => {
 
 const onTabRightClick = (e: MouseEvent<HTMLDivElement>, tab: WorkHubTab) => {
 	const workHubItem = ModuleFE_WorkHub.workHubItem.getByKey(tab.itemKey);
-	if(!workHubItem)
+	if (!workHubItem)
 		return;
 
 	workHubItem.openTabMenu(e, tab);
@@ -39,7 +39,10 @@ export const Component_WorkHub_Tab: FC<Props> = (props) => {
 		onClick={e => onTabClick(e, props.tab.id)}
 		onContextMenu={e => onTabRightClick(e, props.tab)}
 	>
-		{exists(props.tab.tag) && <div className={'c__work-hub-tab__tag'}>{props.tab.tag}</div>}
+		{exists(props.tab.tag) && <div
+			className={'c__work-hub-tab__tag'}
+			{...openContent.tooltip.bottom('work-hub-tab-tooltip', () => <>{props.tab.tagLabel ?? props.tab.label}</>, {offset: 5})}
+		>{props.tab.tag}</div>}
 		{props.tab.label}
 	</LL_H_C>;
 };

@@ -19,6 +19,7 @@ import {isWorkHubTabGroup, WorkHubTabGroup} from '@nu-art/work-hub-shared';
 type Props = {
 	tabId: string;
 	customSections?: WorkHubItem_MenuSection[];
+	originX?: number;
 };
 
 export class Component_WorkHubActionMenu
@@ -29,7 +30,7 @@ export class Component_WorkHubActionMenu
 	static show = (e: MouseEvent<HTMLDivElement>, props: Props) => {
 		const model: Model_PopUp = {
 			id: 'work-hub-action-menu',
-			content: () => <Component_WorkHubActionMenu {...props}/>,
+			content: () => <Component_WorkHubActionMenu {...props} originX={e.clientX}/>,
 			originPos: {x: e.clientX, y: e.clientY},
 			modalPos: {x: 1, y: 1},
 		};
@@ -130,12 +131,18 @@ export class Component_WorkHubActionMenu
 		</Fragment>;
 	};
 
+	private shouldFlipSubmenus = () => {
+		const menuWidth = 300;
+		const submenuWidth = 310;
+		return (this.props.originX ?? 0) + menuWidth + submenuWidth > window.innerWidth;
+	};
+
 	private render_ActionWithInner = (action: WorkHubItem_MenuAction, index: number) => {
 		const hasInner = !!action.innerActions?.length;
 		const renderInner = hasInner && !action.disabled;
 		const anchorId = generateHex(4);
 		const style = {'--anchor-id': anchorId} as CSSProperties;
-		const className = _className('work-hub-menu-action-with-inner', action.disabled && 'disabled');
+		const className = _className('work-hub-menu-action-with-inner', action.disabled && 'disabled', this.shouldFlipSubmenus() && 'flip-left');
 		return <div className={className} style={style} key={index}>
 			<LL_H_C className={'work-hub-menu-action'}>
 				<div className={'work-hub-menu-action__label'}>{action.label}</div>
