@@ -84,6 +84,7 @@ export * from './components/TS_ProgressBar/index.js';
 export * from './components/TS_Card/index.js';
 export * from './components/TS_ReadMore/index.js';
 export * from './components/AwaitModules/AwaitModules.js';
+export * from './components/AwaitModules/function-wrapper.js';
 export * from './components/AwaitSync/AwaitSync.js';
 export * from './components/Show.js';
 export * from './components/TS_EditableContent/TS_EditableContent.js';
