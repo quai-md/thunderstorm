@@ -21,6 +21,7 @@ export class ModuleFE_SyncManager_CSV_Class
 	syncFromCSVUrl = async (url: string, config?: PapaparseConfig) => {
 		const modules = arrayToMap(this.getModulesToSync(), i => i.dbDef.dbKey);
 		const start = performance.now();
+		const dbKeys = new Set<string>();
 		const itemsToSync: any[] = [];
 		const errors: any[] = [];
 
@@ -28,6 +29,7 @@ export class ModuleFE_SyncManager_CSV_Class
 			const isEmulator = Thunder.getInstance().getConfig().label?.toLowerCase() === 'local';
 			const downloadRequestHeaders = isEmulator ? undefined : {[HeaderKey_ContentType]: 'text/csv'};
 			const finalConfig = config ? mergeObject({downloadRequestHeaders}, config) : {downloadRequestHeaders};
+
 			ModuleFE_CSVParser.fromURL(
 				url,
 				{
@@ -41,14 +43,15 @@ export class ModuleFE_SyncManager_CSV_Class
 						if (!module)
 							return;
 
+						dbKeys.add(item.dbKey);
 						itemsToSync.push(item);
 					},
 
 					complete: async () => {
-						for (const moduleKey of _keys(modules)) {
-							const items = itemsToSync.filter(item => item.dbKey === moduleKey);
-							const module = modules[moduleKey];
-
+						for(const dbKey of dbKeys) {
+							const items = itemsToSync.filter(item => item.dbKey === dbKey);
+							const module = modules[dbKey];
+							module.setDataStatus(DataStatus.UpdatingData);
 							// Get all docs to upsert
 							const documents = items.map(i => i.document);
 
@@ -97,6 +100,15 @@ export class ModuleFE_SyncManager_CSV_Class
 					resolve();
 				});
 		});
+	};
+
+	readyAllUnreadyModules = async () => {
+		const modules = this.getModulesToSync().filter(m => m.getDataStatus() === DataStatus.NoData);
+		this.logDebug('Readying unready modules', modules);
+		for (const module of modules) {
+			await module.cache.load();
+			module.setDataStatus(DataStatus.ContainsData);
+		}
 	};
 }
 
