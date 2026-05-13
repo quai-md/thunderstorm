@@ -13,10 +13,10 @@ export class WorkHubItem<Args extends any = void>
 	extends Logger {
 
 	public readonly key: string;
-	public modulesToAwait: ModuleFE_BaseDB<any>[] | undefined;
+	public modulesToAwait?: ModuleFE_BaseDB<any>[];
 	public renderer: WorkHubItemRenderer<Args>;
-	private tabTag: string | undefined;
-	private tabTooltip: ResolvableContent<ReactNode> | undefined;
+	private tabTag?: string;
+	private tabTooltip?: ResolvableContent<ReactNode>;
 	private customMenuActionsResolver: MenuResolver;
 
 	// ######################## Builder ########################
