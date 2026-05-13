@@ -34,10 +34,10 @@ export class WorkHubItem<Args extends any = void>
 		return this;
 	};
 
-	public setTag = (tag: string, label?: string) => {
+	public setTag = (tag: string, tooltip?: ResolvableContent<ReactNode>) => {
 		this.tabTag = tag;
-		if (label)
-			this.tabTooltip = label;
+		if (tooltip)
+			this.tabTooltip = tooltip;
 		return this;
 	};
 
