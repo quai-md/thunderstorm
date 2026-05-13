@@ -16,6 +16,7 @@ export class WorkHubItem<Args extends any = void>
 	public modulesToAwait: ModuleFE_BaseDB<any>[] | undefined;
 	public renderer: WorkHubItemRenderer<Args>;
 	private tabTag: string | undefined;
+	private tabTagLabel: string | undefined;
 	private customMenuActionsResolver: MenuResolver;
 
 	// ######################## Builder ########################
@@ -33,8 +34,9 @@ export class WorkHubItem<Args extends any = void>
 		return this;
 	};
 
-	public setTag = (tag: string) => {
+	public setTag = (tag: string, label?: string) => {
 		this.tabTag = tag;
+		this.tabTagLabel = label;
 		return this;
 	};
 
@@ -58,6 +60,7 @@ export class WorkHubItem<Args extends any = void>
 		return {
 			itemKey: this.key,
 			tag: this.tabTag,
+			tagLabel: this.tabTagLabel,
 			id,
 			label,
 			renderArgs: args,

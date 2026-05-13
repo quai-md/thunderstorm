@@ -89,6 +89,10 @@
       }
     }
 
+    &.flip-left > .work-hub-menu-action__inner-actions {
+      right: calc(100% + 10px);
+    }
+
     &.disabled {
       & > .work-hub-menu-action {
         background: transparent;

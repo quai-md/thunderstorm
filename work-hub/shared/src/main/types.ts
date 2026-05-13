@@ -3,6 +3,7 @@ export type WorkHubTab = {
 	id: string;
 	label: string;
 	tag?: string;
+	tagLabel?: string;
 	renderArgs: any;
 };
 
