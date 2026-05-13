@@ -41,7 +41,12 @@ export const Component_WorkHub_Tab: FC<Props> = (props) => {
 	>
 		{exists(props.tab.tag) && <div
 			className={'c__work-hub-tab__tag'}
-			{...openContent.tooltip.bottom('work-hub-tab-tooltip', () => <>{props.tab.tagLabel ?? props.tab.label}</>, {offset: 5})}
+			{...openContent.tooltip.bottom('work-hub-tab-tooltip', () => {
+				const item = ModuleFE_WorkHub.workHubItem.getByKey(props.tab.itemKey);
+				const tooltip = item?.getTabTooltip();
+				const resolved = typeof tooltip === 'function' ? tooltip() : tooltip;
+				return <>{resolved ?? props.tab.label}</>;
+			}, {offset: 5})}
 		>{props.tab.tag}</div>}
 		{props.tab.label}
 	</LL_H_C>;
