@@ -115,6 +115,7 @@ class ModuleFE_WorkHub_Class
 			this.clearEmptyGroups();
 			this.storage_tabs.set([...this._tabs]);
 			this.tabStack.pop(tabId);
+			dispatch_OnWorkHubTabClosed.dispatchUI(tabId);
 			dispatch_OnWorkHubTabsUpdated.dispatchUI();
 			dispatch_OnWorkHubTabClosed.dispatchModule(tabId);
 		},
