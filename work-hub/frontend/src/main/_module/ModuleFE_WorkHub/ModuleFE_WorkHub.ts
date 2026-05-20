@@ -1,7 +1,7 @@
 import {BadImplementationException, filterInstances, lastElement, mergeObject, Module, removeFromArrayByIndex, removeItemFromArray} from '@nu-art/ts-common';
 import {isWorkHubTab, isWorkHubTabGroup, PermissionKeys_WorkHubUI, WorkHubTab, WorkHubTabGroup} from '@nu-art/work-hub-shared';
 import {ModuleFE_WorkHub_GroupActions, ModuleFE_WorkHub_TabActions} from './types.js';
-import {dispatch_OnWorkHubTabSelected, dispatch_OnWorkHubTabsUpdated} from '../../dispatchers.js';
+import {dispatch_OnWorkHubTabClosed, dispatch_OnWorkHubTabSelected, dispatch_OnWorkHubTabsUpdated} from '../../dispatchers.js';
 import {StorageKey} from '@nu-art/thunderstorm-frontend';
 import {WorkHubItem} from '../../_core/work-hub-item.js';
 import {workHubTabGroupColors} from '../../_ui/Component_WorkHub_Header/renderers/Component_WorkHub_TabGroup/consts.js';
@@ -115,7 +115,9 @@ class ModuleFE_WorkHub_Class
 			this.clearEmptyGroups();
 			this.storage_tabs.set([...this._tabs]);
 			this.tabStack.pop(tabId);
+			dispatch_OnWorkHubTabClosed.dispatchUI(tabId);
 			dispatch_OnWorkHubTabsUpdated.dispatchUI();
+			dispatch_OnWorkHubTabClosed.dispatchModule(tabId);
 		},
 		getSelected: () => {
 			const selectedId = lastElement(this._tabStack);
