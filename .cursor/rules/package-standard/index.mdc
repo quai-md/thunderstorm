@@ -5,6 +5,8 @@ alwaysApply: false
 
 # Package Standard
 
+> **Routing:** For BAI, monorepo layout, and consuming patterns, use [_thunderstorm/.cursor/rules/index.mdc](../index.mdc). This checklist is the **legacy** package standard for the current submodule revision; upstream Thunderstorm package.json rules apply only after a submodule upgrade.
+
 This is the master document that defines the standard for a thunderstorm infra package and the expected requirements to validate their existence and accuracy.
 
 ## Overview

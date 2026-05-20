@@ -1,0 +1,17 @@
+---
+description: Non-negotiable principles and final rules — always obey
+alwaysApply: true
+---
+
+## Principles (where to find rules: [rules index](index.mdc))
+
+- **API / server or client:** Use the **http** lib patterns (`ApiDef`, decorators). See index → Consuming.
+- **DB / CRUD entities:** Use thunderstorm **db-api-gen** patterns (`ModuleBE_*` / `ModuleFE_*`, `EditableDBItemV3`). In this submodule that is embedded in `@nu-art/thunderstorm-backend` / `@nu-art/thunderstorm-frontend`, not the split `@nu-art/db-api-*` packages. See index → Consuming.
+
+---
+
+## Final rule (veto)
+
+**It violates the lighthouse** — do not do it - and prompt the user for confirmation.
+
+---
