@@ -1,0 +1,58 @@
+---
+description: When working with thunderstorm infrastructure or BAI — routing table to thunderstorm agent rules
+alwaysApply: false
+---
+
+# Thunderstorm rules index
+
+Non-negotiable principles are in [thunderstorm-based-project.mdc](thunderstorm-based-project.mdc) (lighthouse). This file is the **single routing table** to thunderstorm rules in this submodule.
+
+Read [vocabulary](../.rules/vocabulary.mdc) first for the core mental model. Then use the table below to find the right rule by intent.
+
+Paths are relative to the **monorepo root** (quai-web), unless noted as submodule-relative.
+
+---
+
+## Operational (how to operate in a thunderstorm project)
+
+| Want to… | Read |
+|-----------|------|
+| Core vocabulary (package, lib, unit, module naming) | [_thunderstorm/.rules/vocabulary.mdc](_thunderstorm/.rules/vocabulary.mdc) |
+| Understand what BAI is (entities, flow) | [_thunderstorm/.rules/operational/bai-overview.mdc](_thunderstorm/.rules/operational/bai-overview.mdc) |
+| Run BAI (build, test, install, flags) | [_thunderstorm/.rules/operational/bai-cli.mdc](_thunderstorm/.rules/operational/bai-cli.mdc) |
+| Understand monorepo layout, configs, ESM | [_thunderstorm/.rules/operational/project-structure.mdc](_thunderstorm/.rules/operational/project-structure.mdc) |
+| Understand package vs library, domains, layout | [_thunderstorm/.rules/operational/package-and-libraries.mdc](_thunderstorm/.rules/operational/package-and-libraries.mdc) |
+| Add a missing dependency to a package | [_thunderstorm/.rules/operational/missing-dependency.mdc](_thunderstorm/.rules/operational/missing-dependency.mdc) |
+
+---
+
+## Contributing (working ON thunderstorm packages)
+
+Legacy package-standard docs remain under [_thunderstorm/.cursor/rules/package-standard/](_thunderstorm/.cursor/rules/package-standard/) until the submodule is upgraded to latest Thunderstorm. Do not apply new-monorepo-only package.json rules from upstream without verifying this repo.
+
+| Want to… | Read |
+|-----------|------|
+| Write or add a thunderstorm agent rule | [_thunderstorm/.cursor/rules/writing-rules.mdc](_thunderstorm/.cursor/rules/writing-rules.mdc) |
+| Package standard checklist (legacy layout) | [_thunderstorm/.cursor/rules/package-standard/index.mdc](_thunderstorm/.cursor/rules/package-standard/index.mdc) |
+
+---
+
+## Consuming (working WITH thunderstorm in this project)
+
+| Want to… | Read |
+|-----------|------|
+| Edit DB entities in UI (EditableItem, EditableDBItemV3) | [_thunderstorm/.rules/consuming/editable-item-pattern.mdc](_thunderstorm/.rules/consuming/editable-item-pattern.mdc) |
+| Module config from RTDB (config pipeline, seed data) | [_thunderstorm/.rules/consuming/thunder-config-pipeline.mdc](_thunderstorm/.rules/consuming/thunder-config-pipeline.mdc) |
+| UI components and utilities (prohibited HTML, routing — no `window.location`) | [_thunderstorm/.rules/consuming/ui-components.mdc](_thunderstorm/.rules/consuming/ui-components.mdc) |
+| DB entity migrations and backward compat (prewrite defaults, not optional fields) | [_thunderstorm/.rules/consuming/prewrite-and-migrations.mdc](_thunderstorm/.rules/consuming/prewrite-and-migrations.mdc) |
+| File system fixture format (batch file trees) | [_thunderstorm/.cursor/rules/conventions/file-system-fixture.mdc](_thunderstorm/.cursor/rules/conventions/file-system-fixture.mdc) |
+
+---
+
+## Quai-web project rules (outside submodule)
+
+| Want to… | Read |
+|-----------|------|
+| KM vs Advisor products and target filesystem layout | [.cursor/rules/quai-web-repo-mental-model.mdc](.cursor/rules/quai-web-repo-mental-model.mdc) |
+| Legacy permissions package bootstrap | [.cursor/rules/permissions-package-spec.mdc](.cursor/rules/permissions-package-spec.mdc) |
+| UI building (SCSS, components, visual quality) | Workspace `agent-rules--ui-building/.cursor/rules/index.mdc` when present |
