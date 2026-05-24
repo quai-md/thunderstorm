@@ -17,12 +17,14 @@ type Props = React.PropsWithChildren<{
 	customLoader?: ResolvableContent<React.ReactNode, [AwaitModule_LoaderProps]>;
 	customMissingPermissionsRenderer?: ResolvableContent<React.ReactNode, [{ modules: ModuleFE_BaseDB<any>[] }]>;
 	Component?: ResolvableContent<React.ReactNode>;
+	debug_ShowLoader?: boolean;
 }>;
 
 type State = {
 	validModules: (ModuleFE_BaseDB<any>)[];
 	readyModules: (ModuleFE_BaseDB<any>)[];
 	ready: boolean;
+	debug_ShowLoader: boolean;
 };
 
 export type AwaitModule_LoaderProps = {
@@ -82,7 +84,7 @@ export class AwaitModules
 
 		// Set awaiting true if not all valid modules are ready
 		state.ready = state.validModules.length === state.readyModules.length;
-
+		state.debug_ShowLoader = !!nextProps.debug_ShowLoader;
 		return state;
 	}
 
@@ -156,6 +158,9 @@ export class AwaitModules
 	};
 
 	render() {
+		if(this.state.debug_ShowLoader)
+			return this.renderLoader();
+
 		if (this.getMissingPermissionModules().length)
 			return this.renderMissingPermissions();
 
