@@ -55,4 +55,10 @@ export class Toaster<CustomVariant extends string>
 	public toastSuccess(properties: ToastProperties) {
 		this.toast(BaseToastVariant.Success, properties);
 	}
+
+	public getQueueLength(): number {
+		const models = ModuleFE_Toasting.getModels()
+			.filter(model => model.key === this.toastingKey);
+		return models.length;
+	}
 }
