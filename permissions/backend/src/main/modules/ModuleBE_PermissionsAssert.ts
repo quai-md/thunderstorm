@@ -30,7 +30,7 @@ import {
 	Module,
 	RuntimeModules,
 	StringMap,
-	TypedMap
+	TypedMap,
 } from '@nu-art/ts-common';
 import {
 	addRoutes,
@@ -225,17 +225,26 @@ export class ModuleBE_PermissionsAssert_Class
 		}
 
 		//_accessLevels is a map[domain id <> access level numeric value]
-		this.assertUserPassesAccessLevels(apiDetails.dbApi._accessLevels!, userPermissions);
+		this.assertUserPassesAccessLevels(apiDetails.dbApi._accessLevels!, userPermissions, path, apiDetails.requestPermissions);
 	}
 
-	public assertUserPassesAccessLevels(domainToLevelValueMap: DomainToLevelValueMap, userPermissions: TypedMap<number>) {
+	public assertUserPassesAccessLevels(domainToLevelValueMap: DomainToLevelValueMap, userPermissions: TypedMap<number>, path?: string, requestPermissions?: DB_PermissionAccessLevel[]) {
+		const levelsByDomain = requestPermissions ? arrayToMap(requestPermissions, l => l.domainId) : undefined;
+
 		_keys(domainToLevelValueMap).forEach(domainId => {
 			const userDomainPermission = userPermissions[domainId];
-			if (!exists(userDomainPermission))
-				throw new ApiException(403, 'Missing Access For This Domain');
+			const expectedLevel = domainToLevelValueMap[domainId];
+			const levelInfo = levelsByDomain?.[domainId];
+			const levelLabel = levelInfo ? `"${levelInfo.uiLabel || levelInfo.name}" (${expectedLevel})` : `${expectedLevel}`;
+			const pathLabel = path ? ` on "${path}"` : '';
 
-			if (userDomainPermission < domainToLevelValueMap[domainId]) {
-				this.logErrorBold(`for domain - userAccessLevel <> expectedAccessLevel: "${domainId}" ${(userDomainPermission ?? 0)} <> ${domainToLevelValueMap[domainId]}`);
+			if (!exists(userDomainPermission)) {
+				this.logErrorBold(`Permission denied${pathLabel}: domain ${domainId}${levelInfo ? ` requires level ${levelLabel}` : ''}, user has no access to this domain`);
+				throw new ApiException(403, 'Missing Access For This Domain');
+			}
+
+			if (userDomainPermission < expectedLevel) {
+				this.logErrorBold(`Permission denied${pathLabel}: domain ${domainId} requires level ${levelLabel}, user has ${userDomainPermission}`);
 				throw new ApiException(403, 'Action Forbidden');
 			}
 		});
