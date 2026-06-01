@@ -59,6 +59,9 @@ type State = {
 	metadata?: Response_FetchBackupMetadata;
 
 	cleanSync: boolean
+	delta: boolean
+	deleteMissing: boolean
+	forceFull: boolean
 }
 
 export class ATS_SyncEnvironment
@@ -79,6 +82,10 @@ export class ATS_SyncEnvironment
 		state.selectedChunkSize ??= StorageKey_ChunkSize.get(100);
 		state.selectedEnv ??= StorageKey_Env.get('prod');
 		state.backupId ??= StorageKey_BackupId.get();
+		state.cleanSync ??= false;
+		state.delta ??= false;
+		state.deleteMissing ??= false;
+		state.forceFull ??= false;
 
 		//Add local module data
 		state.moduleList = this.getCollectionModuleList().reduce<TypedMap<ModuleMetadata>>((toRet, name) => {
@@ -136,6 +143,9 @@ export class ATS_SyncEnvironment
 					chunkSize: this.state.selectedChunkSize!,
 					selectedModules: Array.from(this.state.selectedModules),
 					cleanSync: this.state.cleanSync,
+					delta: this.state.delta,
+					deleteMissing: this.state.delta && this.state.deleteMissing,
+					forceFull: this.state.delta && this.state.forceFull,
 				}, 'selectedModules')).executeSync();
 			} catch (err: any) {
 				this.logError(err);
@@ -311,6 +321,26 @@ export class ATS_SyncEnvironment
 						this.setState({cleanSync: value});
 					}}
 				>Clean Sync</TS_Checkbox>
+				<TS_Checkbox
+					checked={this.state.delta}
+					onCheck={(value) => {
+						this.setState({delta: value});
+					}}
+				>Delta (change-tracked)</TS_Checkbox>
+				<TS_Checkbox
+					disabled={!this.state.delta}
+					checked={this.state.delta && this.state.deleteMissing}
+					onCheck={(value) => {
+						this.setState({deleteMissing: value});
+					}}
+				>Delete Missing</TS_Checkbox>
+				<TS_Checkbox
+					disabled={!this.state.delta}
+					checked={this.state.delta && this.state.forceFull}
+					onCheck={(value) => {
+						this.setState({forceFull: value});
+					}}
+				>Force Full</TS_Checkbox>
 			</LL_H_C>
 		</TS_PropRenderer.Vertical>;
 	};
