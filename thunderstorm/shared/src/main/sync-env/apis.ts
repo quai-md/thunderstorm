@@ -9,7 +9,21 @@ export type Request_FetchFromEnv = {
 	chunkSize: number,
 	selectedModules: string[]
 	cleanSync?: boolean
+	/** Opt into the change-tracked (watermark) apply instead of the legacy brute-force overwrite. */
+	delta?: boolean
+	/** When delta + the caller provides tombstones, delete locally the docs removed at the source. */
+	deleteMissing?: boolean
+	/** Ignore the stored per-env watermark and re-apply the full backup (rebuilds the indicator). */
+	forceFull?: boolean
 }
+
+/** A source-side tombstone reference: the collection (dbKey) and the deleted document id. */
+export type SyncEnv_DeletedDocRef = { __collectionName: string, __docId: UniqueId };
+
+/** Per-dbKey accounting of a delta apply. */
+export type SyncEnvDeltaSummary = { [dbKey: string]: { upserted: number, deleted: number, skipped: number } };
+
+export type Response_SyncFromEnv = { summary?: SyncEnvDeltaSummary };
 
 export type Request_FetchFirebaseBackup = { backupId: UniqueId, env: string }
 
@@ -21,7 +35,7 @@ export type ApiStruct_SyncEnv = {
 	vv1: {
 		getLatestBackup: QueryApi<{ latestBackupId: string }>
 		syncToEnv: BodyApi<any, { env: 'dev' | 'prod', moduleName: string, items: any[] }>
-		syncFromEnvBackup: BodyApi<any, Request_FetchFromEnv>
+		syncFromEnvBackup: BodyApi<Response_SyncFromEnv, Request_FetchFromEnv>
 		createBackup: QueryApi<{ pathToBackup: string } | undefined>,
 		fetchBackupMetadata: QueryApi<Response_FetchBackupMetadata, Request_GetMetadata>,
 		syncFirebaseFromBackup: QueryApi<any, Request_FetchFirebaseBackup>

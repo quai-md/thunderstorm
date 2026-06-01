@@ -2,6 +2,7 @@ import {
 	ApiException,
 	arrayToMap,
 	BadImplementationException,
+	currentTimeMillis,
 	Dispatcher,
 	Minute,
 	Module,
@@ -17,6 +18,7 @@ import {
 	ApiDef_SyncEnv,
 	ApiModule,
 	DBModuleType,
+	FetchBackupDoc,
 	HeaderKey_Authorization,
 	HttpMethod,
 	QueryApi,
@@ -24,7 +26,10 @@ import {
 	Request_FetchFromEnv,
 	Request_GetMetadata,
 	Response_BackupDocs,
-	Response_FetchBackupMetadata
+	Response_FetchBackupMetadata,
+	Response_SyncFromEnv,
+	SyncEnv_DeletedDocRef,
+	SyncEnvDeltaSummary
 } from '@nu-art/thunderstorm-shared';
 import {AxiosHttpModule} from '../http/AxiosHttpModule.js';
 import {MemKey_HttpRequest} from '../server/consts.js';
@@ -32,7 +37,8 @@ import {ModuleBE_BaseApi_Class} from '../db-api-gen/ModuleBE_BaseApi.js';
 import {Storm} from '../../core/Storm.js';
 import {ModuleBE_BackupDocDB} from '../../_entity/backup-doc/index.js';
 import {ModuleBE_BaseDB} from '../db-api-gen/ModuleBE_BaseDB.js';
-import {Transform, Writable} from 'stream';
+import {SyncEnvDeltaSummaryBuilder} from './sync-env-delta.js';
+import {Readable, Transform, Writable} from 'stream';
 import {firestore} from 'firebase-admin';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
 
@@ -46,6 +52,13 @@ type Config = {
 	allowSyncEnv?: boolean;
 	allowedEnvsToSyncFrom?: string[]
 }
+
+/**
+ * Per source-env sync watermark. `backupTimestamp` is the source backup's own timestamp that was last
+ * applied locally — the next delta only upserts docs whose `__updated` exceeds it. `syncTimestamp` is
+ * when that apply ran locally (diagnostics only).
+ */
+type EnvSyncIndicator = { backupTimestamp: number, syncTimestamp: number };
 
 export interface OnSyncEnvCompleted {
 	__onSyncEnvCompleted: (env: string, baseUrl: string, requiredHeaders: TypedMap<string>) => void;
@@ -130,7 +143,7 @@ class ModuleBE_SyncEnv_Class
 		return {latestBackupId: latestBackupId};
 	};
 
-	syncFromEnvBackup = async (body: Request_FetchFromEnv) => {
+	syncFromEnvBackup = async (body: Request_FetchFromEnv): Promise<Response_SyncFromEnv> => {
 		if (!this.config.allowSyncEnv)
 			throw new MUSTNeverHappenException(`SyncEnv is disabled on this env- to sync into this env, add 'allowSyncEnv: true'.`);
 
@@ -171,17 +184,23 @@ class ModuleBE_SyncEnv_Class
 		//Prepare Syncing data
 		const backupInfo = await this.getBackupInfo(body);
 		const stream = await ModuleBE_BackupDocDB.createBackupReadStream(backupInfo);
-		const collectionFilter = new SyncCollectionFilter(body.selectedModules);
-		const collectionWriter = new CollectionBatchWriter(body.chunkSize);
 
 		this.logInfo(`----  Syncing Collections From Backup... ----`);
 		startTime = performance.now();
-		await new Promise<void>((resolve, reject) => {
-			stream
-				.pipe(collectionFilter)
-				.pipe(collectionWriter)
-				.on('finish', () => resolve());
-		});
+		let response: Response_SyncFromEnv = {};
+		if (body.delta) {
+			response = {summary: await this.applyDeltaFromBackup(body, backupInfo, stream)};
+		} else {
+			const collectionFilter = new SyncCollectionFilter(body.selectedModules);
+			const collectionWriter = new CollectionBatchWriter(body.chunkSize);
+			await new Promise<void>((resolve, reject) => {
+				stream
+					.pipe(collectionFilter)
+					.pipe(collectionWriter)
+					.on('finish', () => resolve())
+					.on('error', reject);
+			});
+		}
 		endTime = performance.now();
 		this.logInfo(`Syncing Collections took ${((endTime - startTime) / 1000).toFixed(3)} seconds`);
 
@@ -191,6 +210,104 @@ class ModuleBE_SyncEnv_Class
 
 		if (this.config.shouldBackupBeforeSync && endTime !== undefined && startTime !== undefined)
 			this.logInfo(`(Backup took ${((endTime - startTime) / 1000).toFixed(3)} seconds)`);
+
+		return response;
+	};
+
+	/**
+	 * Orchestrates a watermark-based delta apply for the legacy backupId path:
+	 * reads the stored per-env watermark, applies only docs newer than it, then advances the indicator.
+	 * The backupId path carries no tombstones, so this is upsert-only (deletes flow through the artifact path).
+	 */
+	private applyDeltaFromBackup = async (body: Request_FetchFromEnv, backupInfo: FetchBackupDoc, stream: Readable): Promise<SyncEnvDeltaSummary> => {
+		// A wiped collection (cleanSync) or an explicit forceFull must re-import everything from scratch.
+		const resetWatermark = !!body.cleanSync || !!body.forceFull;
+		const indicator = resetWatermark ? undefined : await this.getEnvSyncIndicator(body.env);
+		const watermark = indicator?.backupTimestamp ?? 0;
+		const backupTimestamp = backupInfo.metadata?.timestamp ?? currentTimeMillis();
+
+		this.logInfo(`Delta apply from env '${body.env}' — watermark: ${watermark}, backup ts: ${backupTimestamp}`);
+		const summary = await this.applyBackupStreamDelta(stream, {
+			selectedModules: body.selectedModules,
+			watermark,
+			chunkSize: body.chunkSize,
+			deleteMissing: body.deleteMissing,
+		});
+
+		await this.setEnvSyncIndicator(body.env, {backupTimestamp, syncTimestamp: currentTimeMillis()});
+		return summary;
+	};
+
+	/**
+	 * Reusable change-tracked apply engine. Streams a backup, upserts only docs whose `__updated`
+	 * exceeds the watermark, and (when `deleteMissing` + `deletedDocs` are provided) removes
+	 * source-deleted docs locally. Returns a per-dbKey accounting. The caller owns watermark
+	 * computation and indicator persistence so a partial failure never advances the watermark.
+	 */
+	applyBackupStreamDelta = async (stream: Readable, options: {
+		selectedModules: string[],
+		watermark: number,
+		chunkSize: number,
+		deleteMissing?: boolean,
+		deletedDocs?: SyncEnv_DeletedDocRef[],
+	}): Promise<SyncEnvDeltaSummary> => {
+		const summaryBuilder = new SyncEnvDeltaSummaryBuilder(options.watermark);
+		const writer = new CollectionDeltaWriter(options.chunkSize, summaryBuilder, options.selectedModules);
+		await new Promise<void>((resolve, reject) => {
+			stream
+				.pipe(writer)
+				.on('finish', () => resolve())
+				.on('error', reject);
+		});
+
+		if (options.deleteMissing && options.deletedDocs?.length)
+			await this.applyDeletes(options.deletedDocs, options.selectedModules, options.chunkSize, summaryBuilder);
+
+		return summaryBuilder.summary;
+	};
+
+	/** Batch-deletes source tombstones locally, scoped to the selected modules, recording each in the summary. */
+	private applyDeletes = async (deletedDocs: SyncEnv_DeletedDocRef[], selectedModules: string[], chunkSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder) => {
+		const allowed = new Set(selectedModules);
+		const firestore = ModuleBE_Firebase.createAdminSession().getFirestoreV3().firestore;
+		const modules = arrayToMap(RuntimeModules()
+			.filter((module: DBModuleType) => !(!module || !module.dbDef)), module => module.dbDef!.dbKey);
+
+		let batch = firestore.batch();
+		let pending = 0;
+		for (const ref of deletedDocs) {
+			if (!allowed.has(ref.__collectionName))
+				continue;
+
+			const module = modules[ref.__collectionName];
+			if (!module) {
+				this.logWarning(`Could not get module for deleted doc with dbKey ${ref.__collectionName}`);
+				continue;
+			}
+
+			batch.delete(firestore.doc(`${module.dbDef!.backend.name}/${ref.__docId}`));
+			summaryBuilder.recordDelete(ref.__collectionName);
+			if (++pending === chunkSize) {
+				await batch.commit();
+				batch = firestore.batch();
+				pending = 0;
+			}
+		}
+
+		if (pending > 0)
+			await batch.commit();
+	};
+
+	private indicatorRef = (env: string) =>
+		ModuleBE_Firebase.createAdminSession().getDatabase().ref<EnvSyncIndicator>(`/state/${this.getName()}/lastSync/${env}`);
+
+	/** The last applied {backupTimestamp, syncTimestamp} for a source env — the watermark for the next delta. */
+	getEnvSyncIndicator = async (env: string): Promise<EnvSyncIndicator | undefined> => {
+		return this.indicatorRef(env).get();
+	};
+
+	setEnvSyncIndicator = async (env: string, indicator: EnvSyncIndicator): Promise<void> => {
+		await this.indicatorRef(env).set(indicator);
 	};
 
 	private async getBackupInfo(queryParams: Request_GetMetadata) {
@@ -276,6 +393,76 @@ class CollectionBatchWriter
 			const collectionName = module.dbDef!.backend.name;
 			const docRef = this.firestore.doc(`${collectionName}/${chunk._id}`);
 			const data = JSON.parse(chunk.document);
+			this.batchWriter.set(docRef, data);
+			this.itemCount++;
+
+			if (this.itemCount === this.paginationSize) {
+				const prevBatchWriter = this.batchWriter;
+				this.batchWriter = this.firestore.batch();
+				this.itemCount = 0;
+				await prevBatchWriter.commit();
+			}
+			callback();
+		} catch (error) {
+			callback(error instanceof Error ? error : new Error(String(error)));
+		}
+	}
+
+	async _final(callback: (error?: Error | null) => void) {
+		try {
+			await this.batchWriter.commit();
+			callback();
+		} catch (err: any) {
+			callback(err as Error);
+		}
+	}
+}
+
+/**
+ * Change-tracked variant of {@link CollectionBatchWriter}: filters by selected modules and a watermark in a
+ * single pass, upserting only docs whose `__updated` is strictly newer than the watermark and recording a
+ * per-dbKey {upserted, skipped} tally. Skipped docs are never read or written, which is what keeps the
+ * delta sync cheap on repeat runs.
+ */
+class CollectionDeltaWriter
+	extends Writable {
+
+	private itemCount: number = 0;
+	private readonly paginationSize: number;
+	private readonly summaryBuilder: SyncEnvDeltaSummaryBuilder;
+	private readonly allowedDbKeys: Set<string>;
+	private firestore: firestore.Firestore;
+	private batchWriter: firestore.WriteBatch;
+	private modules;
+
+	constructor(paginationSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder, selectedModules: string[]) {
+		super({objectMode: true});
+		this.paginationSize = paginationSize;
+		this.summaryBuilder = summaryBuilder;
+		this.allowedDbKeys = new Set(selectedModules);
+		const firebaseSessionAdmin = ModuleBE_Firebase.createAdminSession();
+		this.firestore = firebaseSessionAdmin.getFirestoreV3().firestore;
+		this.batchWriter = this.firestore.batch();
+		this.modules = arrayToMap(RuntimeModules()
+			.filter((module: DBModuleType) => !(!module || !module.dbDef)), module => module.dbDef!.dbKey);
+	}
+
+	async _write(chunk: any, encoding: string, callback: (error?: Error | null) => void) {
+		try {
+			if (!this.allowedDbKeys.has(chunk.dbKey))
+				return callback();
+
+			const module = this.modules[chunk.dbKey];
+			if (!module) {
+				ModuleBE_SyncEnv.logWarning(`Could not get module for chunk with dbKey ${chunk.dbKey}`);
+				return callback();
+			}
+
+			const data = JSON.parse(chunk.document);
+			if (!this.summaryBuilder.considerUpsert(chunk.dbKey, data.__updated))
+				return callback();
+
+			const docRef = this.firestore.doc(`${module.dbDef!.backend.name}/${chunk._id}`);
 			this.batchWriter.set(docRef, data);
 			this.itemCount++;
 
