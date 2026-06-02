@@ -388,7 +388,7 @@ class ModuleBE_SyncEnv_Class
 	};
 
 	private indicatorRef = (env: string) =>
-		ModuleBE_Firebase.createAdminSession().getDatabase().ref<EnvSyncIndicator>(`/state/${this.getName()}/lastSync/${env}`);
+		ModuleBE_Firebase.createModuleStateFirebaseRef<EnvSyncIndicator>(this, `lastSync/${env}`);
 
 	/** The last applied {backupTimestamp, syncTimestamp} for a source env — the watermark for the next delta. */
 	getEnvSyncIndicator = async (env: string): Promise<EnvSyncIndicator | undefined> => {
