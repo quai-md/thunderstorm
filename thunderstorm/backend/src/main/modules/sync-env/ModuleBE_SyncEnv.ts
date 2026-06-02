@@ -17,6 +17,7 @@ import {
 	ApiDef,
 	ApiDef_SyncEnv,
 	ApiModule,
+	BodyApi,
 	DBModuleType,
 	FetchBackupDoc,
 	HeaderKey_Authorization,
@@ -24,9 +25,12 @@ import {
 	QueryApi,
 	Request_FetchFirebaseBackup,
 	Request_FetchFromEnv,
+	Request_GetLatestBackupDelta,
 	Request_GetMetadata,
+	Request_SyncLatestFromEnv,
 	Response_BackupDocs,
 	Response_FetchBackupMetadata,
+	Response_GetLatestBackupDelta,
 	Response_SyncFromEnv,
 	SyncEnv_DeletedDocRef,
 	SyncEnvDeltaSummary
@@ -36,6 +40,7 @@ import {MemKey_HttpRequest} from '../server/consts.js';
 import {ModuleBE_BaseApi_Class} from '../db-api-gen/ModuleBE_BaseApi.js';
 import {Storm} from '../../core/Storm.js';
 import {ModuleBE_BackupDocDB} from '../../_entity/backup-doc/index.js';
+import {ModuleBE_SyncManager} from '../sync-manager/ModuleBE_SyncManager.js';
 import {ModuleBE_BaseDB} from '../db-api-gen/ModuleBE_BaseDB.js';
 import {SyncEnvDeltaSummaryBuilder} from './sync-env-delta.js';
 import {Readable, Transform, Writable} from 'stream';
@@ -80,6 +85,8 @@ class ModuleBE_SyncEnv_Class
 		addRoutes([
 			createBodyServerApi(ApiDef_SyncEnv.vv1.syncToEnv, this.pushToEnv),
 			createBodyServerApi(ApiDef_SyncEnv.vv1.syncFromEnvBackup, this.syncFromEnvBackup),
+			createBodyServerApi(ApiDef_SyncEnv.vv1.getLatestBackupDelta, this.getLatestBackupDelta),
+			createBodyServerApi(ApiDef_SyncEnv.vv1.syncLatestFromEnv, this.syncLatestFromEnv),
 			createQueryServerApi(ApiDef_SyncEnv.vv1.getLatestBackup, this.getLatestBackupId),
 			createQueryServerApi(ApiDef_SyncEnv.vv1.createBackup, this.createBackup),
 			createQueryServerApi(ApiDef_SyncEnv.vv1.fetchBackupMetadata, this.fetchBackupMetadata),
@@ -141,6 +148,88 @@ class ModuleBE_SyncEnv_Class
 
 		const latestBackupId = latestBackup?._id;
 		return {latestBackupId: latestBackupId};
+	};
+
+	/**
+	 * Source-side feed for the fast delta sync (runs on the env being synced FROM, e.g. prod).
+	 * Returns the latest backup descriptor (signed URLs to stream) plus the tombstones deleted at this
+	 * source since the caller's watermark — so the consumer can both upsert and mirror deletions in one round trip.
+	 */
+	getLatestBackupDelta = async (body: Request_GetLatestBackupDelta): Promise<Response_GetLatestBackupDelta> => {
+		const {backupInfo} = await ModuleBE_BackupDocDB.fetchLatestBackupDoc();
+		const deletedDocs = await this.collectDeletedDocsSince(body.selectedModules, body.sinceTimestamp);
+		this.logInfo(`getLatestBackupDelta — backup ${backupInfo._id}, ts ${backupInfo.metadata?.timestamp}, deletedDocs: ${deletedDocs.length}`);
+		return {backupInfo, deletedDocs};
+	};
+
+	/** Gathers source tombstones newer than the watermark across the selected modules. Watermark 0/undefined → no scan. */
+	private collectDeletedDocsSince = async (selectedModules: string[], sinceTimestamp?: number): Promise<SyncEnv_DeletedDocRef[]> => {
+		if (!sinceTimestamp || sinceTimestamp <= 0)
+			return [];
+
+		const perModule = await Promise.all(selectedModules.map(async dbKey => {
+			const deleted = await ModuleBE_SyncManager.queryDeleted(dbKey, {where: {__updated: {$gte: sinceTimestamp}}});
+			return deleted.map(item => ({__collectionName: item.__collectionName, __docId: item.__docId}));
+		}));
+		return perModule.flat();
+	};
+
+	/**
+	 * Local-only trigger (the "fast sync" button / ATS action). Reads the per-env watermark, asks the source env's
+	 * {@link getLatestBackupDelta} for its latest backup + tombstones-since-watermark, applies the change-tracked
+	 * delta locally, then advances the watermark to the applied backup's timestamp. Fails fast if the source env
+	 * does not expose the delta API (it must be deployed there first).
+	 */
+	syncLatestFromEnv = async (body: Request_SyncLatestFromEnv): Promise<Response_SyncFromEnv> => {
+		if (!this.config.allowSyncEnv)
+			throw new MUSTNeverHappenException(`SyncEnv is disabled on this env- to sync into this env, add 'allowSyncEnv: true'.`);
+
+		if (Storm.getInstance().getEnvironment().toLowerCase() === 'prod' && body.env.toLowerCase() !== 'prod')
+			throw new MUSTNeverHappenException('MUST NEVER SYNC ENV THAT IS NOT PROD TO PROD!!');
+
+		if (this.config.allowedEnvsToSyncFrom && !this.config.allowedEnvsToSyncFrom.includes(body.env))
+			throw new MUSTNeverHappenException(`Env ${Storm.getInstance().getEnvironment()
+				.toLowerCase()} doesn't have env ${body.env} in it's allowedEnvsToSyncFrom list.`);
+
+		const indicator = body.forceFull ? undefined : await this.getEnvSyncIndicator(body.env);
+		const watermark = indicator?.backupTimestamp ?? 0;
+
+		this.logInfoBold(`Fast delta sync from env '${body.env}' — watermark: ${watermark}, forceFull: ${!!body.forceFull}`);
+		const {backupInfo, deletedDocs} = await this.fetchLatestBackupDeltaFromEnv(body.env, {
+			sinceTimestamp: body.deleteMissing ? watermark : 0,
+			selectedModules: body.selectedModules,
+		});
+		const backupTimestamp = backupInfo.metadata?.timestamp ?? currentTimeMillis();
+
+		const stream = await ModuleBE_BackupDocDB.createBackupReadStream(backupInfo);
+		const summary = await this.applyBackupStreamDelta(stream, {
+			selectedModules: body.selectedModules,
+			watermark,
+			chunkSize: body.chunkSize,
+			deleteMissing: body.deleteMissing,
+			deletedDocs,
+		});
+
+		await this.setEnvSyncIndicator(body.env, {backupTimestamp, syncTimestamp: currentTimeMillis()});
+
+		this.logInfo(`----  Syncing Other Modules... ----`);
+		await dispatch_OnSyncEnvCompleted.dispatchModuleAsync(body.env, this.config.urlMap[body.env], this.config.sessionMap[body.env]!);
+		return {summary};
+	};
+
+	/** Calls the source env's {@link getLatestBackupDelta} using the configured per-env url + session headers. */
+	private fetchLatestBackupDeltaFromEnv = async (env: string, body: Request_GetLatestBackupDelta): Promise<Response_GetLatestBackupDelta> => {
+		const url = this.config.urlMap[env];
+		const headers = this.config.sessionMap[env];
+		if (!url || !headers)
+			throw new BadImplementationException(`Missing urlMap/sessionMap entry for env '${env}' — cannot fetch delta source.`);
+
+		const apiDef = ApiDef_SyncEnv.vv1.getLatestBackupDelta;
+		return await AxiosHttpModule
+			.createRequest<BodyApi<Response_GetLatestBackupDelta, Request_GetLatestBackupDelta>>({...apiDef, fullUrl: `${url}/${apiDef.path}`})
+			.setBody(body)
+			.addHeaders(headers)
+			.executeSync(true);
 	};
 
 	syncFromEnvBackup = async (body: Request_FetchFromEnv): Promise<Response_SyncFromEnv> => {
@@ -217,7 +306,7 @@ class ModuleBE_SyncEnv_Class
 	/**
 	 * Orchestrates a watermark-based delta apply for the legacy backupId path:
 	 * reads the stored per-env watermark, applies only docs newer than it, then advances the indicator.
-	 * The backupId path carries no tombstones, so this is upsert-only (deletes flow through the artifact path).
+	 * The backupId path carries no tombstones, so this is upsert-only (deletes flow through syncLatestFromEnv).
 	 */
 	private applyDeltaFromBackup = async (body: Request_FetchFromEnv, backupInfo: FetchBackupDoc, stream: Readable): Promise<SyncEnvDeltaSummary> => {
 		// A wiped collection (cleanSync) or an explicit forceFull must re-import everything from scratch.
