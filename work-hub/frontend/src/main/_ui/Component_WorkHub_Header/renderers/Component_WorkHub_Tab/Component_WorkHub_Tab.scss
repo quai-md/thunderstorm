@@ -24,7 +24,7 @@
     border-color: #0000ff;
   }
 
-  &.selected[data-edit-mode="true"] {
+  &[data-edit-mode="true"] {
     border-color: #F59E0B;
 
     .c__work-hub-tab__tag {
