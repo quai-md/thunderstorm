@@ -8,4 +8,6 @@ export const AddOn_EntityFilter: SearchAddOn<AddOnDef_EntityFilter> = {
 		return {pass: entities.includes(result.filterResults['entity'].value)};
 	},
 	isActive: (entities) => !!entities?.length,
+	label: 'Entity Type',
+	group: 'Properties',
 };

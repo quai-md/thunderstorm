@@ -1,6 +1,6 @@
 import {Component_SearchAddOn} from '../../components/Component_SearchAddOn.js';
 import {AddOn_EntityFilter, AddOnDef_EntityFilter} from './types.js';
-import {InferProps, InferState, LL_H_C, SimpleListAdapter, TS_DropDown, TS_PropRenderer} from '@nu-art/thunderstorm-frontend';
+import {InferProps, InferState, LL_H_C, SimpleListAdapter, TS_Checkbox, TS_DropDown, TS_PropRenderer} from '@nu-art/thunderstorm-frontend';
 import {TS_Icons} from '@nu-art/ts-styles';
 import './Component_AddOn_EntityFilter.scss';
 import {SearchAddOn, SearchItem} from '../../../_core/index.js';
@@ -49,10 +49,11 @@ export class Component_AddOn_EntityFilter
 		if (!this.state.activeSearchItems)
 			return;
 
+		const keys = this.state.value?.filter(key => !this.state.permanentOnScreenEntityKeys.includes(key));
 		return <TS_PropRenderer.Vertical label={this.render_Label} className={'search-add-on__entity-filter'}>
 			<LL_H_C className={'search-add-on__entity-filter__item-list'}>
 				{this.render_PermanentOnScreenItems()}
-				{this.state.value?.map(this.render_SelectedItem)}
+				{keys?.map(this.render_SelectedItem)}
 				{this.render_ItemSelector()}
 			</LL_H_C>
 		</TS_PropRenderer.Vertical>;
@@ -69,7 +70,9 @@ export class Component_AddOn_EntityFilter
 		if (!this.state.permanentOnScreenEntityKeys.length)
 			return;
 
-		return <></>;
+		return <>
+			{this.state.permanentOnScreenEntityKeys.map(this.render_SelectedItem)}
+		</>;
 	};
 
 	private render_SelectedItem = (itemKey: string) => {
@@ -77,12 +80,18 @@ export class Component_AddOn_EntityFilter
 		if (!searchItem)
 			return void this.logWarning(`Could not find a search item for key ${itemKey}`);
 
+		const selected = this.state.value?.includes(itemKey);
 		return <LL_H_C
 			key={searchItem.module.dbDef.dbKey}
 			className={'search-add-on__entity-filter__selected-item'}
 		>
+			<TS_Checkbox checked={selected} onCheck={() => {
+				if (selected)
+					return this.onItemRemoved(searchItem);
+
+				this.onItemSelected(searchItem);
+			}}/>
 			{searchItem.entityLabel}
-			<TS_Icons.x.component onClick={() => this.onItemRemoved(searchItem)}/>
 		</LL_H_C>;
 	};
 
@@ -93,7 +102,7 @@ export class Component_AddOn_EntityFilter
 			selected={undefined}
 			onSelected={this.onItemSelected}
 			placeholder={'Select an entity'}
-			queryFilter={item => !this.state.value?.includes(item.module.dbDef.dbKey)}
+			queryFilter={item => !this.state.value?.includes(item.module.dbDef.dbKey) && !this.state.permanentOnScreenEntityKeys.includes(item.module.dbDef.dbKey)}
 		/>;
 	};
 }

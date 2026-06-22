@@ -20,4 +20,6 @@ export type SearchAddOn<Def extends SearchAddOnDef<any, any, any, any>> = {
 	resultFilter: (value: NonNullable<Def['valueType']>, item: SearchResult) => { pass: boolean, score?: number };
 	valueTransform?: (value: NonNullable<Def['valueType']>) => NonNullable<Def['valueType']>;
 	isActive: (param: Def['valueType']) => boolean;
+	group?: string;
+	label?: string;
 }
