@@ -54,7 +54,9 @@ export class StorageWrapperBE
 	async getOrCreateBucket(bucketName?: string): Promise<BucketWrapper> {
 		const originBucketName = bucketName;
 		const gcpBucketPrefix = 'gs://';
-		bucketName ??= `${gcpBucketPrefix}${process.env.GCLOUD_PROJECT}.appspot.com`;
+		bucketName ??= this.storage.app.options.storageBucket
+			? `${gcpBucketPrefix}${this.storage.app.options.storageBucket}`
+			: `${gcpBucketPrefix}${process.env.GCLOUD_PROJECT}.appspot.com`;
 
 		if (!bucketName.startsWith(gcpBucketPrefix))
 			throw new BadImplementationException(`Bucket name MUST start with '${gcpBucketPrefix}', received '${bucketName}'`);
