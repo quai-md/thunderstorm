@@ -18,16 +18,23 @@ export class ModuleBE_ServerInfo_Class
 		super();
 	}
 
-	init() {
+	async init() {
 		super.init();
 
-		ModuleBE_Firebase.createAdminSession().getStorage().getMainBucket().then(async bucket => {
+		try {
+			const bucket = await ModuleBE_Firebase.createAdminSession().getStorage().getMainBucket();
 			this.setDefaultConfig({
 				environment: Storm.getInstance().getEnvironment(),
 				version: RuntimeVersion(),
 				bucketName: bucket.getBucketName()
 			});
-		});
+		} catch (e: any) {
+			this.logError('Failed to resolve main bucket for ServerInfo config', e);
+			this.setDefaultConfig({
+				environment: Storm.getInstance().getEnvironment(),
+				version: RuntimeVersion(),
+			});
+		}
 
 		addRoutes([
 			createQueryServerApi(ApiDef_ServerInfo.v1.getServerInfo, this.getServerInfo),
@@ -57,6 +64,11 @@ export class ModuleBE_ServerInfo_Class
 	 */
 	pingFirestore = async () => {
 		try {
+			if (!ModuleBE_SyncManager.collection?.query?.custom) {
+				this.logWarning('ModuleBE_SyncManager collection is not initialized; skipping Firestore ping');
+				return Const_ERROR;
+			}
+
 			await ModuleBE_SyncManager.collection.query.custom({where: {}, limit: 1});
 			return Const_OK;
 		} catch (e: any) {
