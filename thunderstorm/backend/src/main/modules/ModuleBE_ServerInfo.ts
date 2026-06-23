@@ -18,7 +18,7 @@ export class ModuleBE_ServerInfo_Class
 		super();
 	}
 
-	async init() {
+	init() {
 		super.init();
 
 		ModuleBE_Firebase.createAdminSession().getStorage().getMainBucket().then(async bucket => {
