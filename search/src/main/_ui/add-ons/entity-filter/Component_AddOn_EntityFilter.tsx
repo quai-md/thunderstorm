@@ -78,7 +78,7 @@ export class Component_AddOn_EntityFilter
 	private render_SelectedItem = (itemKey: string) => {
 		const searchItem = this.state.activeSearchItems.find(item => item.module.dbDef.dbKey === itemKey);
 		if (!searchItem)
-			return void this.logWarning(`Could not find a search item for key ${itemKey}`);
+			return;
 
 		const selected = this.state.value?.includes(itemKey);
 		return <LL_H_C
