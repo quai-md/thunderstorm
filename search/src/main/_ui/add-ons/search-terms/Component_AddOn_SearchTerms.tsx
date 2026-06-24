@@ -5,9 +5,11 @@ import {AddOn_SearchTerms, AddOnDef_SearchTerms} from './types.js';
 import './Component_AddOn_SearchTerms.scss';
 import {TS_Icons} from '@nu-art/ts-styles';
 import {InferProps, InferState} from '@nu-art/thunderstorm-frontend';
+import { RefObject } from 'react';
 
 type Props = {
 	placeholder?: string;
+	inputRef?: RefObject<HTMLInputElement>;
 };
 
 type State = {
@@ -31,6 +33,7 @@ export class Component_AddOn_SearchTerms
 				value={this.state.value}
 				placeholder={this.state.placeholder}
 				onChange={val => this.setValue(val.trimStart())}
+				innerRef={this.props.inputRef}
 			/>
 			<TS_Icons.Search.component/>
 		</LL_H_C>;
