@@ -171,10 +171,12 @@ export class TS_Tabs
 		const contentClass = _className('ts-tabs__content', this.props.tabsContentClass);
 
 		return (
-			<div id={this.props.id} className={wrapperClass}>
+			<div id={this.props.id} className={wrapperClass} data-tab-key={this.state.selectedTabId}>
 				<div className={headerClass}>
 					{tabs.map(tab => {
-						const tabClasses = _className('ts-tabs__tab', 'unselectable', this.state.selectedTabId === tab.uid ? 'ts-tabs__focused' : undefined, tab.disabled ? 'disabled' : undefined);
+						const tabClasses = _className('ts-tabs__tab', 'unselectable', this.state.selectedTabId === tab.uid ? 'ts-tabs__focused' : undefined, tab.disabled
+							? 'disabled'
+							: undefined);
 						return <div key={tab.uid} id={tab.uid} className={tabClasses} onClick={(e) => this.selectOnClick(e, tab)}>{getTitle(tab)}</div>;
 					})}
 					<span className={'ts-tabs__empty-tab'}/>
