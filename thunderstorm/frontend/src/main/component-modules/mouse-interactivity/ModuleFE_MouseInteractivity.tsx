@@ -30,7 +30,7 @@ const showToolTip = new ThunderDispatcher<ToolTipListener, '__onToolTipDisplay'>
 
 export class ModuleFE_MouseInteractivity_Class
 	extends Module<{}> {
-	
+
 	showMenu = (model: Model_Menu) => {
 		const content: React.ReactNode = <TS_Tree
 			className={'ts-popup__content__menu'}
@@ -56,14 +56,14 @@ export class ModuleFE_MouseInteractivity_Class
 		showToolTip.dispatchUI(model);
 	};
 
-	hide = (type: MouseInteractivityType) => {
+	hide = (type: MouseInteractivityType, immediate: boolean = false) => {
 		switch (type) {
 			case 'pop-up':
 				showPopUp.dispatchUI();
 				break;
 
 			case 'tool-tip':
-				showToolTip.dispatchUI();
+				showToolTip.dispatchUI(undefined, immediate);
 				break;
 		}
 	};
