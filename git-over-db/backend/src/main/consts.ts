@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-import {MemKey} from '@nu-art/ts-common';
+import {MemKey} from '@nu-art/ts-common/mem-storage/MemStorage';
 
 /** Request-scoped active branch id. Defaults to {@link LIVE_BRANCH_ID} when unset. */
 export const MemKey_ActiveBranchId = new MemKey<string>('git-over-db--active-branch-id', true);

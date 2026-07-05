@@ -21,7 +21,6 @@ import {
 	DB_Object,
 	DBProto,
 	Module,
-	TypedMap,
 	UniqueId,
 } from '@nu-art/ts-common';
 import {ModuleFE_BaseDB} from '@nu-art/thunderstorm-frontend';
@@ -187,8 +186,8 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		};
 	};
 
-	getParticipatingModules = (): TypedMap<ParticipatingModule> => {
-		return {...this.participatingModules};
+	getParticipatingModules = (): ReadonlyMap<string, ParticipatingModule> => {
+		return this.participatingModules;
 	};
 }
 

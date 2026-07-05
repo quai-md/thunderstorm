@@ -17,7 +17,7 @@
  */
 
 import {DBApiConfigV3, ModuleBE_BaseDB} from '@nu-art/thunderstorm-backend';
-import {DBDef_Overlay, DBProto_Overlay} from '@nu-art/git-over-db-shared/_entity/overlay/index.js';
+import {DBDef_Overlay, DBProto_Overlay} from '@nu-art/git-over-db-shared';
 
 type Config = DBApiConfigV3<DBProto_Overlay>;
 

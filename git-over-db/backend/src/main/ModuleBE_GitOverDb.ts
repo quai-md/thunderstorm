@@ -186,10 +186,13 @@ export class ModuleBE_GitOverDb_Class extends Module {
 		if (existingOverlay[0])
 			return {origin: existingOverlay[0].origin, baseUpdated: existingOverlay[0].baseUpdated};
 
-		const liveDocs = await module.query.unManipulatedQuery({where: {_id: docId}, limit: 1}, transaction);
+		const liveDocs = await module.query.unManipulatedQuery({
+			where: {_id: docId} as any,
+			limit: 1,
+		}, transaction);
 		const liveDoc = liveDocs[0];
 		if (liveDoc)
-			return {origin: liveDoc, baseUpdated: liveDoc.__updated};
+			return {origin: liveDoc as unknown as DB_Object, baseUpdated: liveDoc.__updated};
 
 		const emptyOrigin = {_id: docId, __created: currentTimeMillis(), __updated: 0} as DB_Object;
 		return {origin: emptyOrigin, baseUpdated: 0};

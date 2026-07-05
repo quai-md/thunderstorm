@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-import {StorageKey} from '@nu-art/thunderstorm-frontend/modules/ModuleFE_LocalStorage.js';
+import {StorageKey} from '@nu-art/thunderstorm-frontend/index';
 
 /** Session-scoped active branch id. Defaults to live when unset. */
 export const StorageKey_ActiveBranchId = new StorageKey<string | undefined>('git-over-db--active-branch-id');

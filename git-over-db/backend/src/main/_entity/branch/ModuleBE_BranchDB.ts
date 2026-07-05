@@ -17,7 +17,7 @@
  */
 
 import {DBApiConfigV3, ModuleBE_BaseDB} from '@nu-art/thunderstorm-backend';
-import {DBDef_Branch, DBProto_Branch} from '@nu-art/git-over-db-shared/_entity/branch/index.js';
+import {DBDef_Branch, DBProto_Branch} from '@nu-art/git-over-db-shared';
 
 type Config = DBApiConfigV3<DBProto_Branch>;
 

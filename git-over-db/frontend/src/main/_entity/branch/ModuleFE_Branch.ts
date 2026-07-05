@@ -18,7 +18,8 @@
 
 import {ModuleFE_BaseDB} from '@nu-art/thunderstorm-frontend/index';
 import {DispatcherDef, ThunderDispatcherV3} from '@nu-art/thunderstorm-frontend/core/db-api-gen/types';
-import {DBDef_Branch, DBProto_Branch} from '@nu-art/git-over-db-shared/_entity/branch/index.js';
+import {ModuleSyncType} from '@nu-art/thunderstorm-frontend/modules/db-api-gen/types';
+import {DBDef_Branch, DBProto_Branch} from '@nu-art/git-over-db-shared';
 
 export type DispatcherType_Branch = DispatcherDef<DBProto_Branch, `__onGitOverDbBranchUpdated`>;
 
@@ -28,7 +29,7 @@ export class ModuleFE_Branch_Class
 	extends ModuleFE_BaseDB<DBProto_Branch> {
 
 	constructor() {
-		super(DBDef_Branch, dispatch_onGitOverDbBranchChanged);
+		super(DBDef_Branch, dispatch_onGitOverDbBranchChanged, ModuleSyncType.APISync);
 	}
 }
 
