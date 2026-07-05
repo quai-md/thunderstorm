@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-import {AuditableV2, DB_Object, DBProto, Proto_DB_Object, VersionsDeclaration} from '@nu-art/ts-common';
+import {DB_Object, DBProto, Proto_DB_Object, VersionsDeclaration} from '@nu-art/ts-common';
 
 type VersionTypes_Branch = {
 	'1.0.0': DB_Branch
@@ -30,7 +30,7 @@ type Proto = Proto_DB_Object<DB_Branch, 'git-over-db--branch', GeneratedProps, V
 export type DBProto_Branch = DBProto<Proto>;
 
 export type UI_Branch = DBProto_Branch['uiType'];
-export type DB_Branch = DB_Object & AuditableV2 & {
+export type DB_Branch = DB_Object & {
 	label: string;
 	participants: string[];
 };

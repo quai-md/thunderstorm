@@ -16,7 +16,14 @@
  * limitations under the License.
  */
 
-import {DBDef_V3, tsValidateNumber, tsValidateString} from '@nu-art/ts-common';
+import {
+	DBDef_V3,
+	DB_Object_validator,
+	tsValidateNonMandatoryObject,
+	tsValidateNumber,
+	tsValidateString,
+	tsValidateValue,
+} from '@nu-art/ts-common';
 import {DBProto_Overlay} from './types.js';
 import {GitOverDbDBGroup} from '../../consts.js';
 
@@ -24,9 +31,9 @@ const Validator_ModifiableProps: DBProto_Overlay['modifiablePropsValidator'] = {
 	branchId: tsValidateString(),
 	dbKey: tsValidateString(),
 	docId: tsValidateString(),
-	kind: tsValidateString(),
-	document: () => true,
-	origin: () => true,
+	kind: tsValidateValue(['document', 'tombstone']),
+	document: tsValidateNonMandatoryObject({...DB_Object_validator}),
+	origin: {...DB_Object_validator},
 	baseUpdated: tsValidateNumber(),
 };
 
