@@ -1,39 +1,32 @@
 @use './svgs' as *;
+@use 'sass:meta';
 
-@mixin mouse-interactive-background($background, $hoverBackground: $background, $activeBackground: $hoverBackground) {
+@mixin mouse-interactive-property($property, $c, $ch: $c, $ca: $ch) {
+  @if meta.type-of($property) != string {
+    @error "mouse-interactive-property: $property (first argument) must be a string, got '#{$property}'";
+  }
+
   & {
-    background: $background;
+    #{$property}: $c;
   }
   &:hover {
-    background: $hoverBackground;
+    #{$property}: $ch;
   }
   &:active {
-    background: $activeBackground;
+    #{$property}: $ca;
   }
 }
 
-@mixin mouse-interactive-text($c,$c-h: $c,$c-a:$c-h) {
-  & {
-    color: $c;
-  }
-  &:hover {
-    color: $c-h;
-  }
-  &:active {
-    color: $c-a;
-  }
+@mixin mouse-interactive-background($c, $ch: $c, $ca: $ch) {
+  @include mouse-interactive-property('background', $c, $ch, $ca);
 }
 
-@mixin mouse-interactive-border-color($border, $hoverBorder: $border, $activeBorder: $hoverBorder) {
-  & {
-    border: $border;
-  }
-  &:hover {
-    border: $hoverBorder;
-  }
-  &:active {
-    border: $activeBorder;
-  }
+@mixin mouse-interactive-text($c, $ch: $c, $ca: $ch) {
+  @include mouse-interactive-property('color', $c, $ch, $ca);
+}
+
+@mixin mouse-interactive-border-color($c, $ch: $c, $ca: $ch) {
+  @include mouse-interactive-property('border', $c, $ch, $ca);
 }
 
 @mixin edge-fade($girth, $color) {
