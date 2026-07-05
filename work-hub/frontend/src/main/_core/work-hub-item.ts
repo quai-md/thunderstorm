@@ -88,6 +88,10 @@ export class WorkHubItem<Args extends any = void>
 		if (currentGroupKey)
 			return ModuleFE_WorkHub.group.addTabs(currentGroupKey, newTabs);
 		else
-			ModuleFE_WorkHub.group.create(generateHex(4), tabId,newTabs, customGroupName ?? 'New Group');
+			ModuleFE_WorkHub.group.create(generateHex(4), tabId, newTabs, customGroupName ?? 'New Group');
+	};
+
+	public updateTabLabel = (tabId: string, label: string) => {
+		ModuleFE_WorkHub.tabs.updateLabel(tabId, label);
 	};
 }
