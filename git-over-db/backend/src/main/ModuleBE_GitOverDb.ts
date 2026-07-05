@@ -52,14 +52,10 @@ export class ModuleBE_GitOverDb_Class extends Module {
 	private readonly wrappedPaths = new Map<string, WrappedWritePaths>();
 
 	resolveActiveBranchId = (): string => {
-		return MemKey_ActiveBranchId.get() ?? LIVE_BRANCH_ID;
+		return MemKey_ActiveBranchId.peak() ?? LIVE_BRANCH_ID;
 	};
 
 	setActiveBranchId = (branchId: string) => {
-		if (branchId === LIVE_BRANCH_ID) {
-			MemKey_ActiveBranchId.delete();
-			return;
-		}
 		MemKey_ActiveBranchId.set(branchId);
 	};
 
