@@ -49,7 +49,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 	private readonly originalCacheLoad = new Map<string, ParticipatingModule['cache']['load']>();
 	private readonly originalOnEntriesUpdated = new Map<string, ParticipatingModule['onEntriesUpdated']>();
 	private readonly originalOnEntriesDeleted = new Map<string, ParticipatingModule['onEntriesDeleted']>();
-	private readonly gitSyncModules: ParticipatingModule[] = [ModuleFE_Branch, ModuleFE_Overlay];
+	private readonly gitSyncModules: Array<{ getDataStatus: () => DataStatus }> = [ModuleFE_Branch, ModuleFE_Overlay];
 
 	resolveActiveBranchId = (): string => StorageKey_ActiveBranchId.get() ?? LIVE_BRANCH_ID;
 
@@ -123,8 +123,10 @@ export class ModuleFE_GitOverDb_Class extends Module {
 			: await module.IDB.query();
 
 		const {documents, tombstonedDocIds} = this.getOverlaySliceForBranch(branchId, module.dbDef.dbKey);
-		const branchDocs = cacheFilter ? documents.filter(cacheFilter) : documents;
-		const composed = composeBranchCacheView(liveItems, branchDocs, tombstonedDocIds);
+		const branchDocs = cacheFilter
+			? documents.filter(doc => cacheFilter(doc as Proto['dbType']))
+			: documents;
+		const composed = composeBranchCacheView(liveItems, branchDocs as Proto['dbType'][], tombstonedDocIds);
 
 		if (cacheFilter)
 			module.cache.setCacheFilter(cacheFilter);
