@@ -26,7 +26,7 @@ import {
 	MUSTNeverHappenException,
 	UniqueId,
 } from '@nu-art/ts-common';
-import {DBApiConfigV3, ModuleBE_BaseDB} from '@nu-art/thunderstorm-backend';
+import {ModuleBE_BaseDB} from '@nu-art/thunderstorm-backend';
 import {
 	DBDef_Branch,
 	DBDef_Overlay,
@@ -38,7 +38,7 @@ import {Transaction} from 'firebase-admin/firestore';
 import {MemKey_ActiveBranchId} from './consts.js';
 import {ModuleBE_OverlayDB} from './_entity/overlay/ModuleBE_OverlayDB.js';
 
-type ParticipatingModule = ModuleBE_BaseDB<DBProto<any>, DBApiConfigV3<DBProto<any>>>;
+type ParticipatingModule = ModuleBE_BaseDB<any, any>;
 
 type WrappedWritePaths = {
 	originalSetItem: ParticipatingModule['set']['item'];
