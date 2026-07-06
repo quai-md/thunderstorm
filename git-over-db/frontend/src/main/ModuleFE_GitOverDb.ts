@@ -49,7 +49,17 @@ export class ModuleFE_GitOverDb_Class extends Module {
 	private readonly originalCacheLoad = new Map<string, ParticipatingModule['cache']['load']>();
 	private readonly originalOnEntriesUpdated = new Map<string, ParticipatingModule['onEntriesUpdated']>();
 	private readonly originalOnEntriesDeleted = new Map<string, ParticipatingModule['onEntriesDeleted']>();
+	private readonly originalSetDataStatus = new Map<string, ParticipatingModule['setDataStatus']>();
 	private readonly gitSyncModules: Array<{ getDataStatus: () => DataStatus }> = [ModuleFE_Branch, ModuleFE_Overlay];
+	private overlaySyncHandlerWrapped = false;
+
+	protected init(): void {
+		super.init();
+		this.wrapOverlaySyncHandler();
+	}
+
+	private isGitSyncReady = (): boolean =>
+		this.gitSyncModules.every(module => module.getDataStatus() === DataStatus.ContainsData);
 
 	resolveActiveBranchId = (): string => StorageKey_ActiveBranchId.get() ?? LIVE_BRANCH_ID;
 
@@ -62,12 +72,12 @@ export class ModuleFE_GitOverDb_Class extends Module {
 
 	/** Participating modules must not finish cache load until branch + overlay smart-sync completed. */
 	awaitGitSync = async (): Promise<void> => {
-		if (this.gitSyncModules.every(module => module.getDataStatus() === DataStatus.ContainsData))
+		if (this.isGitSyncReady())
 			return;
 
 		const deadline = Date.now() + GIT_SYNC_TIMEOUT_MS;
 		while (Date.now() < deadline) {
-			if (this.gitSyncModules.every(module => module.getDataStatus() === DataStatus.ContainsData))
+			if (this.isGitSyncReady())
 				return;
 			await new Promise(resolve => setTimeout(resolve, 25));
 		}
@@ -85,7 +95,38 @@ export class ModuleFE_GitOverDb_Class extends Module {
 
 		this.participatingModules.set(dbKey, module);
 		this.wrapCacheLoad(module);
+		this.wrapSetDataStatus(module);
 		this.wrapSyncHandlers(module);
+	};
+
+	private wrapOverlaySyncHandler = () => {
+		if (this.overlaySyncHandlerWrapped)
+			return;
+		this.overlaySyncHandlerWrapped = true;
+
+		const originalUpdated = ModuleFE_Overlay.onEntriesUpdated.bind(ModuleFE_Overlay);
+		ModuleFE_Overlay.onEntriesUpdated = async (items, updateIDBLastSynced = true) => {
+			await originalUpdated(items, updateIDBLastSynced);
+			for (const entry of items) {
+				this.pendingBranchDocsByDbKey.get(entry.dbKey)?.delete(entry.docId);
+				if (entry.kind === 'tombstone')
+					this.pendingTombstonesByDbKey.get(entry.dbKey)?.delete(entry.docId);
+			}
+		};
+	};
+
+	private wrapSetDataStatus = (module: ParticipatingModule) => {
+		const originalSetDataStatus = module.setDataStatus.bind(module);
+		this.originalSetDataStatus.set(module.dbDef.dbKey, originalSetDataStatus);
+
+		module.setDataStatus = (status: DataStatus) => {
+			if (status !== DataStatus.ContainsData || this.isGitSyncReady()) {
+				originalSetDataStatus(status);
+				return;
+			}
+
+			void this.awaitGitSync().then(() => originalSetDataStatus(status));
+		};
 	};
 
 	private getOverlaySliceForBranch = (branchId: string, dbKey: string) => {
