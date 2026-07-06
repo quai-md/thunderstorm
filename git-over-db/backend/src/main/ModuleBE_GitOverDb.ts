@@ -20,13 +20,11 @@ import {
 	BadImplementationException,
 	currentTimeMillis,
 	DB_Object,
-	DBProto,
 	exists,
 	Module,
 	MUSTNeverHappenException,
 	UniqueId,
 } from '@nu-art/ts-common';
-import {ModuleBE_BaseDB} from '@nu-art/thunderstorm-backend';
 import {
 	DBDef_Branch,
 	DBDef_Overlay,
@@ -114,11 +112,11 @@ export class ModuleBE_GitOverDb_Class extends Module {
 		});
 	};
 
-	private upsertOverlayDocument = async <Proto extends DBProto<any>>(
-		module: ModuleBE_BaseDB<Proto>,
-		preDBItem: Proto['uiType'],
+	private upsertOverlayDocument = async (
+		module: GitOverDbParticipatingModule,
+		preDBItem: { _id?: UniqueId },
 		transaction?: Transaction,
-	): Promise<Proto['dbType']> => {
+	): Promise<any> => {
 		const branchId = this.resolveActiveBranchId();
 		const docId = this.resolveDocId(preDBItem);
 		const {origin, baseUpdated} = await this.resolveOrigin(module, docId, branchId, transaction);
@@ -139,14 +137,14 @@ export class ModuleBE_GitOverDb_Class extends Module {
 		};
 
 		await ModuleBE_OverlayDB.set.item(overlayEntry, transaction);
-		return document as Proto['dbType'];
+		return document;
 	};
 
-	private tombstoneOverlayDocument = async <Proto extends DBProto<any>>(
-		module: ModuleBE_BaseDB<Proto>,
-		item: Proto['uiType'],
+	private tombstoneOverlayDocument = async (
+		module: GitOverDbParticipatingModule,
+		item: { _id?: UniqueId },
 		transaction?: Transaction,
-	): Promise<Proto['dbType']> => {
+	): Promise<any> => {
 		const branchId = this.resolveActiveBranchId();
 		const docId = this.resolveDocId(item);
 		const {origin, baseUpdated} = await this.resolveOrigin(module, docId, branchId, transaction);
@@ -165,7 +163,7 @@ export class ModuleBE_GitOverDb_Class extends Module {
 		};
 
 		await ModuleBE_OverlayDB.set.item(overlayEntry, transaction);
-		return item as Proto['dbType'];
+		return item;
 	};
 
 	private resolveDocId = (item: { _id?: UniqueId }): UniqueId => {
@@ -174,8 +172,8 @@ export class ModuleBE_GitOverDb_Class extends Module {
 		return item._id;
 	};
 
-	private resolveOrigin = async <Proto extends DBProto<any>>(
-		module: ModuleBE_BaseDB<Proto>,
+	private resolveOrigin = async (
+		module: GitOverDbParticipatingModule,
 		docId: UniqueId,
 		branchId: UniqueId,
 		transaction?: Transaction,
