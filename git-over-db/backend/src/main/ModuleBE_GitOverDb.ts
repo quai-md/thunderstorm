@@ -38,17 +38,23 @@ import {Transaction} from 'firebase-admin/firestore';
 import {MemKey_ActiveBranchId} from './consts.js';
 import {ModuleBE_OverlayDB} from './_entity/overlay/ModuleBE_OverlayDB.js';
 
-type ParticipatingModule = ModuleBE_BaseDB<any, any>;
+type GitOverDbParticipatingModule = {
+	readonly dbDef: { readonly dbKey: string };
+	set: { item: (preDBItem: any, transaction?: Transaction) => Promise<any> };
+	create: { item: (preDBItem: any, transaction?: Transaction) => Promise<any> };
+	delete: { item: (item: any, transaction?: Transaction) => Promise<any> };
+	query: { unManipulatedQuery: (query: any, transaction?: Transaction) => Promise<any[]> };
+};
 
 type WrappedWritePaths = {
-	originalSetItem: ParticipatingModule['set']['item'];
-	originalCreateItem: ParticipatingModule['create']['item'];
-	originalDeleteItem: ParticipatingModule['delete']['item'];
+	originalSetItem: GitOverDbParticipatingModule['set']['item'];
+	originalCreateItem: GitOverDbParticipatingModule['create']['item'];
+	originalDeleteItem: GitOverDbParticipatingModule['delete']['item'];
 };
 
 export class ModuleBE_GitOverDb_Class extends Module {
 
-	private readonly participatingModules = new Map<string, ParticipatingModule>();
+	private readonly participatingModules = new Map<string, GitOverDbParticipatingModule>();
 	private readonly wrappedPaths = new Map<string, WrappedWritePaths>();
 
 	resolveActiveBranchId = (): string => {
@@ -59,7 +65,7 @@ export class ModuleBE_GitOverDb_Class extends Module {
 		MemKey_ActiveBranchId.set(branchId);
 	};
 
-	registerParticipatingModule = (module: ParticipatingModule) => {
+	registerParticipatingModule = (module: GitOverDbParticipatingModule) => {
 		const dbKey = module.dbDef.dbKey;
 		if (this.participatingModules.has(dbKey))
 			return;
@@ -71,7 +77,7 @@ export class ModuleBE_GitOverDb_Class extends Module {
 		this.wrapWritePaths(module);
 	};
 
-	private wrapWritePaths = (module: ParticipatingModule) => {
+	private wrapWritePaths = (module: GitOverDbParticipatingModule) => {
 		const dbKey = module.dbDef.dbKey;
 		const wrapped: WrappedWritePaths = {
 			originalSetItem: module.set.item.bind(module.set),
