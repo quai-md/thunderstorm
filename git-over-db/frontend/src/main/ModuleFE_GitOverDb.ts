@@ -21,91 +21,35 @@ import {
 	DB_Object,
 	DBProto,
 	Module,
+	Second,
 	UniqueId,
 } from '@nu-art/ts-common';
+import {DataStatus} from '@nu-art/thunderstorm-frontend/core/db-api-gen/consts';
 import {ModuleFE_BaseDB} from '@nu-art/thunderstorm-frontend';
 import {
 	composeBranchCacheView,
 	DBDef_Branch,
 	DBDef_Overlay,
-	DB_OverlayEntry,
 	LIVE_BRANCH_ID,
 	sliceOverlayEntriesForCollection,
 } from '@nu-art/git-over-db-shared';
 import {StorageKey_ActiveBranchId} from './consts.js';
+import {ModuleFE_Branch} from './_entity/branch/ModuleFE_Branch.js';
+import {ModuleFE_Overlay} from './_entity/overlay/ModuleFE_Overlay.js';
 
 type ParticipatingModule = ModuleFE_BaseDB<DBProto<any>, any>;
 
-class BranchOverlayStore {
-	private readonly documentsByBranchDbKey = new Map<string, Map<UniqueId, DB_Object>>();
-	private readonly tombstonesByBranchDbKey = new Map<string, Set<UniqueId>>();
-
-	private key = (branchId: string, dbKey: string) => `${branchId}|${dbKey}`;
-
-	replaceFromOverlayEntries = (branchId: string, entries: readonly DB_OverlayEntry[]) => {
-		const byDbKey = new Map<string, DB_OverlayEntry[]>();
-		for (const entry of entries) {
-			if (entry.branchId !== branchId)
-				continue;
-			const list = byDbKey.get(entry.dbKey) ?? [];
-			list.push(entry);
-			byDbKey.set(entry.dbKey, list);
-		}
-
-		for (const [dbKey, dbEntries] of byDbKey.entries()) {
-			const slice = sliceOverlayEntriesForCollection(dbEntries, dbKey);
-			const docMap = new Map(slice.documents.map(doc => [doc._id, doc]));
-			this.documentsByBranchDbKey.set(this.key(branchId, dbKey), docMap);
-			this.tombstonesByBranchDbKey.set(this.key(branchId, dbKey), new Set(slice.tombstonedDocIds));
-		}
-	};
-
-	upsertDocuments = (branchId: string, dbKey: string, docs: readonly DB_Object[]) => {
-		const storeKey = this.key(branchId, dbKey);
-		const docMap = this.documentsByBranchDbKey.get(storeKey) ?? new Map();
-		for (const doc of docs) {
-			docMap.set(doc._id, doc);
-			this.tombstonesByBranchDbKey.get(storeKey)?.delete(doc._id);
-		}
-		this.documentsByBranchDbKey.set(storeKey, docMap);
-	};
-
-	tombstoneDocuments = (branchId: string, dbKey: string, docIds: readonly UniqueId[]) => {
-		const storeKey = this.key(branchId, dbKey);
-		const tombstones = this.tombstonesByBranchDbKey.get(storeKey) ?? new Set();
-		const docMap = this.documentsByBranchDbKey.get(storeKey);
-		for (const docId of docIds) {
-			tombstones.add(docId);
-			docMap?.delete(docId);
-		}
-		this.tombstonesByBranchDbKey.set(storeKey, tombstones);
-	};
-
-	getSlice = (branchId: string, dbKey: string) => {
-		const storeKey = this.key(branchId, dbKey);
-		return {
-			documents: [...(this.documentsByBranchDbKey.get(storeKey)?.values() ?? [])],
-			tombstonedDocIds: [...(this.tombstonesByBranchDbKey.get(storeKey) ?? [])],
-		};
-	};
-
-	clearBranch = (branchId: string) => {
-		for (const key of [...this.documentsByBranchDbKey.keys()])
-			if (key.startsWith(`${branchId}|`))
-				this.documentsByBranchDbKey.delete(key);
-		for (const key of [...this.tombstonesByBranchDbKey.keys()])
-			if (key.startsWith(`${branchId}|`))
-				this.tombstonesByBranchDbKey.delete(key);
-	};
-}
+const GIT_SYNC_TIMEOUT_MS = 2 * 60 * Second;
 
 export class ModuleFE_GitOverDb_Class extends Module {
 
 	private readonly participatingModules = new Map<string, ParticipatingModule>();
-	private readonly branchOverlayStore = new BranchOverlayStore();
+	private readonly pendingBranchDocsByDbKey = new Map<string, Map<UniqueId, DB_Object>>();
+	private readonly pendingTombstonesByDbKey = new Map<string, Set<UniqueId>>();
 	private readonly originalCacheLoad = new Map<string, ParticipatingModule['cache']['load']>();
 	private readonly originalOnEntriesUpdated = new Map<string, ParticipatingModule['onEntriesUpdated']>();
 	private readonly originalOnEntriesDeleted = new Map<string, ParticipatingModule['onEntriesDeleted']>();
+	private readonly gitSyncModules: ParticipatingModule[] = [ModuleFE_Branch, ModuleFE_Overlay];
 
 	resolveActiveBranchId = (): string => StorageKey_ActiveBranchId.get() ?? LIVE_BRANCH_ID;
 
@@ -116,8 +60,19 @@ export class ModuleFE_GitOverDb_Class extends Module {
 			StorageKey_ActiveBranchId.set(branchId);
 	};
 
-	loadBranchOverlayEntries = (branchId: string, entries: readonly DB_OverlayEntry[]) => {
-		this.branchOverlayStore.replaceFromOverlayEntries(branchId, entries);
+	/** Participating modules must not finish cache load until branch + overlay smart-sync completed. */
+	awaitGitSync = async (): Promise<void> => {
+		if (this.gitSyncModules.every(module => module.getDataStatus() === DataStatus.ContainsData))
+			return;
+
+		const deadline = Date.now() + GIT_SYNC_TIMEOUT_MS;
+		while (Date.now() < deadline) {
+			if (this.gitSyncModules.every(module => module.getDataStatus() === DataStatus.ContainsData))
+				return;
+			await new Promise(resolve => setTimeout(resolve, 25));
+		}
+
+		this.logWarning('git-over-db: awaitGitSync timed out; composing cache from current overlay state');
 	};
 
 	registerParticipatingModule = (module: ParticipatingModule) => {
@@ -133,31 +88,65 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		this.wrapSyncHandlers(module);
 	};
 
+	private getOverlaySliceForBranch = (branchId: string, dbKey: string) => {
+		const overlayEntries = ModuleFE_Overlay.cache.filter(entry => entry.branchId === branchId && entry.dbKey === dbKey);
+		const syncedSlice = sliceOverlayEntriesForCollection(overlayEntries, dbKey);
+		const pendingDocs = this.pendingBranchDocsByDbKey.get(dbKey);
+		if (!pendingDocs?.size)
+			return syncedSlice;
+
+		const byId = new Map<UniqueId, DB_Object>(syncedSlice.documents.map(doc => [doc._id, doc]));
+		for (const doc of pendingDocs.values())
+			byId.set(doc._id, doc);
+
+		const tombstones = new Set(syncedSlice.tombstonedDocIds);
+		const pendingTombstones = this.pendingTombstonesByDbKey.get(dbKey);
+		if (pendingTombstones)
+			for (const docId of pendingTombstones)
+				tombstones.add(docId);
+		for (const docId of pendingDocs?.keys() ?? [])
+			tombstones.delete(docId);
+
+		return {
+			documents: [...byId.values()],
+			tombstonedDocIds: [...tombstones],
+		};
+	};
+
+	private applyBranchOverlayToCache = async <Proto extends DBProto<any>>(
+		module: ModuleFE_BaseDB<Proto, any>,
+		cacheFilter?: (item: Readonly<Proto['dbType']>) => boolean,
+	) => {
+		const branchId = this.resolveActiveBranchId();
+		const liveItems = cacheFilter
+			? await module.IDB.filter(cacheFilter)
+			: await module.IDB.query();
+
+		const {documents, tombstonedDocIds} = this.getOverlaySliceForBranch(branchId, module.dbDef.dbKey);
+		const branchDocs = cacheFilter ? documents.filter(cacheFilter) : documents;
+		const composed = composeBranchCacheView(liveItems, branchDocs, tombstonedDocIds);
+
+		if (cacheFilter)
+			module.cache.setCacheFilter(cacheFilter);
+
+		await module.upgradeInstances(composed);
+		const frozenItems = composed.map(item => Object.freeze(item));
+		// @ts-ignore — MemCache.setCache is protected; instance override is the approved seam.
+		module.cache.setCache(frozenItems);
+		module.cache.loaded = true;
+	};
+
 	private wrapCacheLoad = (module: ParticipatingModule) => {
 		const originalLoad = module.cache.load.bind(module.cache);
 		this.originalCacheLoad.set(module.dbDef.dbKey, originalLoad);
 
 		module.cache.load = async (cacheFilter?) => {
+			await this.awaitGitSync();
+
 			if (this.resolveActiveBranchId() === LIVE_BRANCH_ID)
 				return originalLoad(cacheFilter);
 
-			const branchId = this.resolveActiveBranchId();
-			let liveItems = cacheFilter
-				? await module.IDB.filter(cacheFilter)
-				: await module.IDB.query();
-
-			const {documents, tombstonedDocIds} = this.branchOverlayStore.getSlice(branchId, module.dbDef.dbKey);
-			const branchDocs = cacheFilter ? documents.filter(cacheFilter) : documents;
-			const composed = composeBranchCacheView(liveItems, branchDocs, tombstonedDocIds);
-
-			if (cacheFilter)
-				module.cache.setCacheFilter(cacheFilter);
-
-			await module.upgradeInstances(composed);
-			const frozenItems = composed.map(item => Object.freeze(item));
-			// @ts-ignore — MemCache.setCache is protected; instance override is the approved seam.
-			module.cache.setCache(frozenItems);
-			module.cache.loaded = true;
+			await this.applyBranchOverlayToCache(module, cacheFilter);
 		};
 	};
 
@@ -171,19 +160,41 @@ export class ModuleFE_GitOverDb_Class extends Module {
 			if (this.resolveActiveBranchId() === LIVE_BRANCH_ID)
 				return originalUpdated(items, updateIDBLastSynced);
 
-			const branchId = this.resolveActiveBranchId();
-			this.branchOverlayStore.upsertDocuments(branchId, module.dbDef.dbKey, items);
-			await module.cache.load();
+			const pending = this.pendingBranchDocsByDbKey.get(module.dbDef.dbKey) ?? new Map();
+			for (const item of items)
+				pending.set(item._id, item);
+			this.pendingBranchDocsByDbKey.set(module.dbDef.dbKey, pending);
+
+			await this.awaitGitSync();
+			await this.applyBranchOverlayToCache(module);
 		};
 
 		module.onEntriesDeleted = async (items) => {
 			if (this.resolveActiveBranchId() === LIVE_BRANCH_ID)
 				return originalDeleted(items);
 
-			const branchId = this.resolveActiveBranchId();
-			this.branchOverlayStore.tombstoneDocuments(branchId, module.dbDef.dbKey, items.map(item => item._id));
-			await module.cache.load();
+			const dbKey = module.dbDef.dbKey;
+			const pending = this.pendingBranchDocsByDbKey.get(dbKey);
+			const tombstones = this.pendingTombstonesByDbKey.get(dbKey) ?? new Set();
+			for (const item of items) {
+				tombstones.add(item._id);
+				pending?.delete(item._id);
+			}
+			this.pendingTombstonesByDbKey.set(dbKey, tombstones);
+
+			await this.awaitGitSync();
+			await this.applyBranchOverlayToCache(module);
 		};
+	};
+
+	clearPendingBranchDocs = (dbKey?: string) => {
+		if (dbKey) {
+			this.pendingBranchDocsByDbKey.delete(dbKey);
+			this.pendingTombstonesByDbKey.delete(dbKey);
+		} else {
+			this.pendingBranchDocsByDbKey.clear();
+			this.pendingTombstonesByDbKey.clear();
+		}
 	};
 
 	getParticipatingModules = (): ReadonlyMap<string, ParticipatingModule> => {

@@ -18,10 +18,12 @@
 
 import {Module} from '@nu-art/ts-common';
 import {ModulePackFE_Branch} from './_entity/branch/module-pack.js';
+import {ModulePackFE_Overlay} from './_entity/overlay/module-pack.js';
 import {ModuleFE_GitOverDb} from './ModuleFE_GitOverDb.js';
 
 export const ModulePackFE_GitOverDb: Module[] = [
 	...ModulePackFE_Branch,
+	...ModulePackFE_Overlay,
 	ModuleFE_GitOverDb,
 ];
 
