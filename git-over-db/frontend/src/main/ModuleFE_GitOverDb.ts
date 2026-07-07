@@ -19,13 +19,11 @@
 import {
 	BadImplementationException,
 	DB_Object,
-	DBProto,
 	Module,
 	Second,
 	UniqueId,
 } from '@nu-art/ts-common';
 import {DataStatus} from '@nu-art/thunderstorm-frontend/core/db-api-gen/consts';
-import {ModuleFE_BaseDB} from '@nu-art/thunderstorm-frontend';
 import {
 	composeBranchCacheView,
 	DBDef_Branch,
@@ -37,19 +35,35 @@ import {StorageKey_ActiveBranchId} from './consts.js';
 import {ModuleFE_Branch} from './_entity/branch/ModuleFE_Branch.js';
 import {ModuleFE_Overlay} from './_entity/overlay/ModuleFE_Overlay.js';
 
-type ParticipatingModule = ModuleFE_BaseDB<DBProto<any>, any>;
+type GitOverDbGitOverDbParticipatingModule = {
+	readonly dbDef: { readonly dbKey: string };
+	cache: {
+		load: (cacheFilter?: (item: Readonly<any>) => boolean) => Promise<void>;
+		setCacheFilter: (filter: (item: Readonly<any>) => boolean) => void;
+		loaded: boolean;
+		setCache: (cacheArray: Readonly<any[]>) => void;
+	};
+	IDB: {
+		query: () => Promise<DB_Object[]>;
+		filter: (filter: (item: Readonly<any>) => boolean) => Promise<DB_Object[]>;
+	};
+	onEntriesUpdated: (items: any[], updateIDBLastSynced?: boolean) => Promise<void>;
+	onEntriesDeleted: (items: any[]) => Promise<void>;
+	setDataStatus: (status: DataStatus) => void;
+	upgradeInstances: (instances: any[]) => Promise<any[]>;
+};
 
 const GIT_SYNC_TIMEOUT_MS = 2 * 60 * Second;
 
 export class ModuleFE_GitOverDb_Class extends Module {
 
-	private readonly participatingModules = new Map<string, ParticipatingModule>();
+	private readonly participatingModules = new Map<string, GitOverDbParticipatingModule>();
 	private readonly pendingBranchDocsByDbKey = new Map<string, Map<UniqueId, DB_Object>>();
 	private readonly pendingTombstonesByDbKey = new Map<string, Set<UniqueId>>();
-	private readonly originalCacheLoad = new Map<string, ParticipatingModule['cache']['load']>();
-	private readonly originalOnEntriesUpdated = new Map<string, ParticipatingModule['onEntriesUpdated']>();
-	private readonly originalOnEntriesDeleted = new Map<string, ParticipatingModule['onEntriesDeleted']>();
-	private readonly originalSetDataStatus = new Map<string, ParticipatingModule['setDataStatus']>();
+	private readonly originalCacheLoad = new Map<string, GitOverDbParticipatingModule['cache']['load']>();
+	private readonly originalOnEntriesUpdated = new Map<string, GitOverDbParticipatingModule['onEntriesUpdated']>();
+	private readonly originalOnEntriesDeleted = new Map<string, GitOverDbParticipatingModule['onEntriesDeleted']>();
+	private readonly originalSetDataStatus = new Map<string, GitOverDbParticipatingModule['setDataStatus']>();
 	private readonly gitSyncModules: Array<{ getDataStatus: () => DataStatus }> = [ModuleFE_Branch, ModuleFE_Overlay];
 	private overlaySyncHandlerWrapped = false;
 
@@ -85,7 +99,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		this.logWarning('git-over-db: awaitGitSync timed out; composing cache from current overlay state');
 	};
 
-	registerParticipatingModule = (module: ParticipatingModule) => {
+	registerGitOverDbParticipatingModule = (module: GitOverDbParticipatingModule) => {
 		const dbKey = module.dbDef.dbKey;
 		if (this.participatingModules.has(dbKey))
 			return;
@@ -115,7 +129,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		};
 	};
 
-	private wrapSetDataStatus = (module: ParticipatingModule) => {
+	private wrapSetDataStatus = (module: GitOverDbParticipatingModule) => {
 		const originalSetDataStatus = module.setDataStatus.bind(module);
 		this.originalSetDataStatus.set(module.dbDef.dbKey, originalSetDataStatus);
 
@@ -154,9 +168,9 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		};
 	};
 
-	private applyBranchOverlayToCache = async <Proto extends DBProto<any>>(
-		module: ModuleFE_BaseDB<Proto, any>,
-		cacheFilter?: (item: Readonly<Proto['dbType']>) => boolean,
+	private applyBranchOverlayToCache = async (
+		module: GitOverDbParticipatingModule,
+		cacheFilter?: (item: Readonly<any>) => boolean,
 	) => {
 		const branchId = this.resolveActiveBranchId();
 		const liveItems = cacheFilter
@@ -165,21 +179,20 @@ export class ModuleFE_GitOverDb_Class extends Module {
 
 		const {documents, tombstonedDocIds} = this.getOverlaySliceForBranch(branchId, module.dbDef.dbKey);
 		const branchDocs = cacheFilter
-			? documents.filter(doc => cacheFilter(doc as Proto['dbType']))
+			? documents.filter(doc => cacheFilter(doc))
 			: documents;
-		const composed = composeBranchCacheView(liveItems, branchDocs as Proto['dbType'][], tombstonedDocIds);
+		const composed = composeBranchCacheView(liveItems, branchDocs, tombstonedDocIds);
 
 		if (cacheFilter)
 			module.cache.setCacheFilter(cacheFilter);
 
 		await module.upgradeInstances(composed);
 		const frozenItems = composed.map(item => Object.freeze(item));
-		// @ts-ignore — MemCache.setCache is protected; instance override is the approved seam.
 		module.cache.setCache(frozenItems);
 		module.cache.loaded = true;
 	};
 
-	private wrapCacheLoad = (module: ParticipatingModule) => {
+	private wrapCacheLoad = (module: GitOverDbParticipatingModule) => {
 		const originalLoad = module.cache.load.bind(module.cache);
 		this.originalCacheLoad.set(module.dbDef.dbKey, originalLoad);
 
@@ -193,7 +206,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		};
 	};
 
-	private wrapSyncHandlers = (module: ParticipatingModule) => {
+	private wrapSyncHandlers = (module: GitOverDbParticipatingModule) => {
 		const originalUpdated = module.onEntriesUpdated.bind(module);
 		const originalDeleted = module.onEntriesDeleted.bind(module);
 		this.originalOnEntriesUpdated.set(module.dbDef.dbKey, originalUpdated);
@@ -240,7 +253,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		}
 	};
 
-	getParticipatingModules = (): ReadonlyMap<string, ParticipatingModule> => {
+	getGitOverDbParticipatingModules = (): ReadonlyMap<string, GitOverDbParticipatingModule> => {
 		return this.participatingModules;
 	};
 }
