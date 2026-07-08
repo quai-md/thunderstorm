@@ -41,7 +41,6 @@ type GitOverDbParticipatingModule = {
 		load: (cacheFilter?: (item: Readonly<any>) => boolean) => Promise<void>;
 		setCacheFilter: (filter: (item: Readonly<any>) => boolean) => void;
 		loaded: boolean;
-		setCache: (cacheArray: Readonly<any[]>) => void;
 	};
 	IDB: {
 		query: () => Promise<DB_Object[]>;
@@ -51,6 +50,18 @@ type GitOverDbParticipatingModule = {
 	onEntriesDeleted: (items: any[]) => Promise<void>;
 	setDataStatus: (status: DataStatus) => void;
 	upgradeInstances: (instances: any[]) => Promise<any[]>;
+};
+
+type ParticipatingModuleCacheInternals = GitOverDbParticipatingModule['cache'] & {
+	setCache: (cacheArray: Readonly<any[]>) => void;
+};
+
+const replaceParticipatingModuleCache = (
+	cache: GitOverDbParticipatingModule['cache'],
+	items: Readonly<any[]>,
+) => {
+	(cache as ParticipatingModuleCacheInternals).setCache(items);
+	cache.loaded = true;
 };
 
 const GIT_SYNC_TIMEOUT_MS = 2 * 60 * Second;
@@ -188,8 +199,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 
 		await module.upgradeInstances(composed);
 		const frozenItems = composed.map(item => Object.freeze(item));
-		module.cache.setCache(frozenItems);
-		module.cache.loaded = true;
+		replaceParticipatingModuleCache(module.cache, frozenItems);
 	};
 
 	private wrapCacheLoad = (module: GitOverDbParticipatingModule) => {
