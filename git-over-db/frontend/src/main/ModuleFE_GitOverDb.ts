@@ -35,7 +35,7 @@ import {StorageKey_ActiveBranchId} from './consts.js';
 import {ModuleFE_Branch} from './_entity/branch/ModuleFE_Branch.js';
 import {ModuleFE_Overlay} from './_entity/overlay/ModuleFE_Overlay.js';
 
-type GitOverDbGitOverDbParticipatingModule = {
+type GitOverDbParticipatingModule = {
 	readonly dbDef: { readonly dbKey: string };
 	cache: {
 		load: (cacheFilter?: (item: Readonly<any>) => boolean) => Promise<void>;
@@ -99,7 +99,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		this.logWarning('git-over-db: awaitGitSync timed out; composing cache from current overlay state');
 	};
 
-	registerGitOverDbParticipatingModule = (module: GitOverDbParticipatingModule) => {
+	registerParticipatingModule = (module: GitOverDbParticipatingModule) => {
 		const dbKey = module.dbDef.dbKey;
 		if (this.participatingModules.has(dbKey))
 			return;
@@ -253,7 +253,7 @@ export class ModuleFE_GitOverDb_Class extends Module {
 		}
 	};
 
-	getGitOverDbParticipatingModules = (): ReadonlyMap<string, GitOverDbParticipatingModule> => {
+	getParticipatingModules = (): ReadonlyMap<string, GitOverDbParticipatingModule> => {
 		return this.participatingModules;
 	};
 }
