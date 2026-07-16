@@ -45,6 +45,13 @@ export class Component_WorkHubActionMenu
 		const actions: WorkHubItem_MenuAction[] = [
 			{label: 'Close', action: () => ModuleFE_WorkHub.tabs.remove(this.props.tabId)},
 			{
+				label: 'Close Other Tabs',
+				visible: ModuleFE_WorkHub.tabs.getFlat().length > 1,
+				action: () => ModuleFE_WorkHub.tabs.getFlat()
+					.filter(tab => tab.id !== this.props.tabId)
+					.forEach(tab => ModuleFE_WorkHub.tabs.remove(tab.id)),
+			},
+			{
 				label: 'Move to group',
 				innerActions: [
 					{
