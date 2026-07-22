@@ -56,12 +56,18 @@ export class Label
 
 	// ######################## Logic ########################
 
-	private checkOverflow = () => {
+	private checkOverflow = (secondCheck: boolean = false) => {
 		const el = this.labelRef.current;
 		if (!el)
 			return;
 
-		const overflowing = el.scrollWidth > el.clientWidth;
+		const previousWidth = this.elWidth;
+		this.elWidth = el.clientWidth;
+		const startedScrolling = el.scrollWidth > el.clientWidth;
+		const alreadyOverflowing = el.classList.contains(this.activeTruncationClass);
+		const widthShrunk = exists(previousWidth) && this.elWidth <= previousWidth;
+
+		const overflowing = startedScrolling || (alreadyOverflowing && widthShrunk);
 		//Not overflowing - make sure truncation and tooltip classes aren't applied
 		if (!overflowing) {
 			if (el.classList.contains(this.activeTruncationClass))
@@ -70,6 +76,9 @@ export class Label
 			if (el.classList.contains(this.activeTooltipClass))
 				el.classList.remove(this.activeTooltipClass);
 
+			if (!secondCheck)
+				//Immediately check that we aren't still overflowing in case the width of the item grew
+				this.checkOverflow(true);
 			return;
 		}
 		//Overflowing
