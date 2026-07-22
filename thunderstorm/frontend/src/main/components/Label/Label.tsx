@@ -3,6 +3,7 @@ import {ComponentSync} from '../../core/ComponentSync.js';
 import {_className} from '../../utils/tools.js';
 import './Label.scss';
 import {OnWindowResized} from '../../modules/ModuleFE_Window.js';
+import {exists} from '@nu-art/ts-common';
 
 type Props = React.PropsWithChildren<{
 	tooltip?: React.ReactNode; //The content that will appear in the tooltip
@@ -27,6 +28,7 @@ export class Label
 	private readonly activeTruncationClass = 'truncate-active';
 	private readonly activeTooltipClass = 'tooltip-active';
 	private readonly invertTooltipClass = 'invert-tooltip';
+	private elWidth: number | undefined;
 
 	// ######################## Life Cycle ########################
 
