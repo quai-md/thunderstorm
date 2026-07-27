@@ -1,79 +1,162 @@
-# Fast Env Sync — Spec
+# Fast Env Sync — human guide
 
-Change-tracked, resumable sync of one env's DB into another (e.g. prod → local). Replaces the
-brute-force "stream the whole backup and overwrite everything" path with a delta apply that upserts
-only what changed, mirrors deletions, and survives the serverless function time limit.
+**Audience:** infra / devs who sync one environment's DB into another
+**Design / code:** `ModuleBE_SyncEnv` (backend), `sync-env/apis.ts` (contract), `ModuleFE_SyncEnvV2` (frontend)
+**Naming:** "sync" here means pulling a source env's data into a target env from a backup snapshot — not live replication.
 
-## Scope & ownership
+---
 
-Thunderstorm-only. All logic lives in `ModuleBE_SyncEnv` (backend), `sync-env/apis.ts` (shared
-contract), and `ModuleFE_SyncEnvV2` (frontend). Built purely on two existing infra modules — no
-artifact/domain coupling:
+## Motivation
 
-- `ModuleBE_BackupDocDB` — backups (latest backup descriptor + signed URLs to stream the CSV).
-- `ModuleBE_SyncManager` — tombstones (docs deleted at the source).
+Pulling prod's DB into local (or any env → env) used to be **brute-force**: stream the entire backup and rewrite **every** document. It's expensive (mass reads/writes), slow, and it runs inside a serverless function with a hard time limit — so a large sync can be **killed mid-way with nothing to show** and no way to continue except starting over.
 
-Consumed by the generic ATS Sync-Env screen and a defaulted KM App-Tools button.
+Fast Env Sync makes it a **change-tracked, resumable delta**: apply only what changed since last time, optionally mirror deletions, and checkpoint progress so the time limit stops being a wall.
 
-## Core model
+---
 
-- **Watermark** — `EnvSyncIndicator { backupTimestamp, syncTimestamp }`, per source env, in RTDB at
-  `/state/ModuleBE_SyncEnv/lastSync/{env}` (via `ModuleBE_Firebase.createModuleStateFirebaseRef`).
-  `backupTimestamp` is the source backup timestamp last **fully** applied; the next delta upserts only
-  docs whose `__updated` exceeds it. Advanced **only on successful completion**, so a failure never
-  creates a silent gap.
-- **Delta apply** — stream the source backup CSV; upsert only rows newer than the watermark; skipped
-  rows are never read or written (this is what makes repeat syncs cheap). Produces a per-dbKey
-  `SyncEnvDeltaSummary { upserted, deleted, skipped }`.
-- **Deletions (optional)** — source tombstones since the watermark are fetched from the source and
-  batch-deleted locally, scoped to the selected modules. Gated by a `deleteMissing` flag.
+## What it is
 
-## APIs (`ApiDef_SyncEnv.vv1`)
+Each target env remembers **how far it already synced** from a given source (a **watermark**). The next sync streams the source's latest backup but only applies documents changed **after** the watermark; unchanged docs are skipped entirely. Deletions at the source can be mirrored too. Long runs **checkpoint** their position and **resume** where they left off.
 
-- **`getLatestBackupDelta`** — *source-side (runs on the env being synced FROM).* Returns the latest
-  backup descriptor (signed URLs) + tombstones deleted since the caller's watermark. One round trip
-  covers upserts and deletes. Cheap; not time-bound.
-- **`syncLatestFromEnv`** — *local trigger.* Reads the watermark → calls the source's
-  `getLatestBackupDelta` → runs the resumable delta apply → advances the watermark on completion.
-  **Fails fast** if the source env does not expose `getLatestBackupDelta` (it must be deployed to prod
-  first).
-- **`getSyncStatus({env})`** — returns the live `SyncProgress` (or none) so the UI can show an
-  in-progress sync and offer Resume.
+Think **incremental pull** of a whole database from a snapshot — not a live mirror.
 
-## Resumability & tracking (the time-limit solution)
+---
 
-Every route runs inside a single gen2 HTTPS function (hard ceiling 60 min). The whole apply runs
-inline, so a large apply — especially the first sync (watermark 0 = full import) — can be killed
-mid-flight. The CSV **row index** is a stable resume cursor: a backup is a fixed snapshot, so row
-order is identical across re-streams.
+## Vocabulary
 
-- **`SyncProgress`** per env at `/state/ModuleBE_SyncEnv/syncProgress/{env}`:
-  `{ env, backupId, backupTimestamp, rowIndex, status: 'in-progress'|'completed'|'failed',
-  deletesApplied, startedAt, updatedAt, summary?, error? }`.
-- **Cursor = absolute CSV rows consumed** (not upserts). Every **1000 rows**: commit the pending write
-  batch, *then* persist `rowIndex` — the cursor never runs ahead of committed writes, so even a hard
-  timeout-kill is recoverable.
-- **Resume** — `syncLatestFromEnv` detects an `in-progress` record on the **same backup** and continues
-  from `rowIndex` (skips already-consumed rows); otherwise starts fresh at row 0. Deletes run after the
-  upsert pass and flip `deletesApplied` so a resume never redoes them. `forceFull` clears progress and
-  restarts at row 0 / watermark 0. Resume is **manual from the UI**.
-- **Timeout bump (secondary)** — raise the shared function `timeoutSeconds`/memory to reduce the number
-  of resume hops. Correctness comes from the cursor, not the timeout.
+| Term | Meaning |
+|------|---------|
+| **Source env** | The env you sync **from** (e.g. prod). Exposes a read-only feed; never modified. |
+| **Target env** | The env you sync **into** (e.g. local). Runs the apply. |
+| **Backup** | Immutable CSV snapshot of the source DB at a point in time — already produced by the platform. |
+| **Watermark** | The source backup timestamp the target **last fully applied**. The high-water mark for "what's new." |
+| **Delta apply** | Streaming the backup and upserting only docs whose `__updated` is newer than the watermark; the rest are skipped. |
+| **Tombstone** | A delete marker for a doc removed at the source. |
+| **Cursor** | How many backup rows the current run has consumed — the resume point. |
+| **SyncProgress** | Live status of an in-flight / last sync: running · completed · failed, plus counts and cursor. |
 
-## Constraints
+---
 
-- **Backwards compatible** — the local client works against current prod; the delta path is opt-in and
-  the brute-force path is untouched. The full delta-with-deletes flow needs the source API deployed to
-  prod first.
-- **Runtime state, not entities** — watermark and progress live under `/state/...`; they are never
-  part of a backup.
-- **Env guards** — never sync a non-prod source into prod; honor `allowSyncEnv` / `allowedEnvsToSyncFrom`.
+## Mental model
 
-## Status
+```
+Source backup (CSV snapshot, ordered)      Target env
+┌──────────────────────────────┐
+│ row 0   docA  __updated=105   │──▶ newer than watermark → UPSERT
+│ row 1   docB  __updated= 90   │──▶ ≤ watermark          → SKIP (no read/write)
+│ row 2   docC  __updated=110   │──▶ newer                → UPSERT
+│  ...                          │
+└──────────────────────────────┘
+        watermark = 100
+        tombstones since 100:  docX, docY  ──▶ DELETE locally (if enabled)
 
-- **Done** — delta engine + watermark; `getLatestBackupDelta` + `syncLatestFromEnv`; ATS
-  `delta`/`deleteMissing`/`forceFull` toggles. (Note: on the legacy `backupId` path `deleteMissing` is a
-  no-op — tombstones only flow through `syncLatestFromEnv`.)
-- **Remaining** — `SyncProgress` cursor + resume + `getSyncStatus`; expose the new methods on
-  `ModuleFE_SyncEnvV2`; point the ATS "fast sync" action at `syncLatestFromEnv`; KM App-Tools button;
-  tests for `collectDeletedDocsSince` + the apply orchestration; deploy the source API to prod.
+after success:  watermark ← this backup's timestamp
+```
+
+- Only docs changed since the watermark cost anything — that's what makes repeat syncs cheap.
+- The backup is a fixed snapshot, so **row order is stable** — the row cursor is a reliable resume point.
+
+---
+
+## How a sync runs
+
+```
+1. Read the watermark for this source env      (none → full import from 0)
+2. Ask the source for its latest backup + tombstones-since-watermark
+3. Stream the backup:
+     for each row:
+       advance cursor
+       if row.__updated > watermark → upsert   else → skip
+       every 1000 rows: commit batch, THEN save cursor
+4. If "delete missing": apply the source tombstones locally
+5. On full success: advance the watermark to this backup's timestamp; mark completed
+```
+
+Steps 2–4 are the only work; step 1 and 5 are cheap bookkeeping.
+
+---
+
+## Resume & the time limit
+
+The whole apply runs inside one serverless function with a hard ceiling (~60 min). A big first import can exceed it. The **cursor** makes that survivable:
+
+```
+Cursor is saved every 1000 rows, always AFTER the batch commits
+  → the saved position never runs ahead of persisted writes
+  → a hard timeout-kill loses at most one in-flight batch
+
+Re-trigger the same env:
+  IF a run is "in-progress" on the SAME backup → resume from cursor (skip consumed rows)
+  ELSE                                          → start fresh at row 0
+  forceFull                                     → ignore progress, re-import from 0
+```
+
+Resume is **manual** (re-trigger / a Resume action in the UI). Raising the function's time budget is a secondary optimization — correctness comes from the cursor, not the timeout.
+
+---
+
+## Capabilities
+
+| Capability | What it does | Runs on |
+|------------|--------------|---------|
+| **Latest-backup feed** (`getLatestBackupDelta`) | Hands back the latest backup to stream + the tombstones deleted since the caller's watermark. One round trip covers upserts **and** deletes. Cheap. | **Source** |
+| **Delta sync trigger** (`syncLatestFromEnv`) | Reads watermark → pulls the feed → runs / resumes the delta apply → advances watermark on success. | **Target** |
+| **Progress readout** (`getSyncStatus`) | Reports the live `SyncProgress` so the UI can show a running sync and offer Resume. | **Target** |
+| **`deleteMissing` flag** | Mirror source deletions (off = upserts only). | Target |
+| **`forceFull` flag** | Ignore the watermark/progress and re-import everything. | Target |
+
+---
+
+## Key indicators
+
+- **Watermark** — the cost/safety lever: repeat syncs stay cheap, and because it advances **only on full success**, an interrupted sync never creates a silent gap.
+- **SyncProgress** — the observability + resume lever: what's running, how far, and whether the last run finished or failed.
+
+---
+
+## Data flow
+
+```mermaid
+flowchart TD
+  A[Trigger sync into target] --> B[Read watermark for source env]
+  B --> C[Source: latest backup + tombstones since watermark]
+  C --> D{In-progress run on same backup?}
+  D -->|yes| E[Resume from cursor]
+  D -->|no| F[Start at row 0]
+  E --> G[Stream backup: upsert if newer, else skip]
+  F --> G
+  G --> H[Every 1000 rows: commit, then save cursor]
+  H --> I{deleteMissing?}
+  I -->|yes| J[Apply source tombstones]
+  I -->|no| K[skip]
+  J --> L[Advance watermark, mark completed]
+  K --> L
+```
+
+---
+
+## Guarantees
+
+- **No silent gaps** — watermark advances only after a fully successful apply.
+- **Crash-safe resume** — cursor is never ahead of committed writes; a kill resumes cleanly.
+- **Idempotent** — re-applying overwrites; re-runs are safe.
+- **Source is read-only** — sync never writes to the source env.
+- **Backwards compatible** — the target fails fast if the source lacks the feed; deploy the source capability to prod first.
+- **Env guards** — never sync a non-prod source into prod; honor the env allow-list.
+
+---
+
+## Scope
+
+**Shipped:** delta engine + watermark; source feed (`getLatestBackupDelta`); target trigger (`syncLatestFromEnv`); ATS toggles (`delta` / `deleteMissing` / `forceFull`).
+
+**Not shipped:** `SyncProgress` cursor + resume + `getSyncStatus`; the new methods on `ModuleFE_SyncEnvV2`; an ATS "fast sync" action wired to `syncLatestFromEnv`; the defaulted KM App-Tools button; tests for tombstone gathering + apply orchestration; deploying the source feed to prod.
+
+---
+
+## What this is not
+
+- **Not live replication** — it applies a point-in-time backup snapshot, not a continuous mirror.
+- **Not a backup producer** — it consumes backups the platform already makes.
+- **Not automatic** — syncs (and resumes) are triggered, not scheduled.
+- **Not a full copy every time** — unchanged docs are skipped; only the delta is applied.
