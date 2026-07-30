@@ -5,12 +5,7 @@
 
   .ts-label__content {
     width: 100%;
-  }
-
-  &.truncate-active {
-    .ts-label__content {
-      @include styles.text-ellipsis;
-    }
+    @include styles.text-ellipsis;
   }
 
   &.tooltip-active {
