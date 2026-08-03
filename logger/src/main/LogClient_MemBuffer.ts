@@ -51,6 +51,8 @@ export class LogClient_MemBuffer
 	extends LogClient_BaseRotate {
 	/** If true, preserves natural colors in log output (disables ANSI color codes) */
 	private keepNaturalColors = false;
+	/** If true, no ANSI color codes are added to the log at all (plain text output) */
+	private colorsDisabled = false;
 	/** Array of log buffers, where index 0 is the current buffer */
 	readonly buffers: string[] = [''];
 	/** Optional callback invoked when a log is appended */
@@ -105,9 +107,9 @@ export class LogClient_MemBuffer
 	 * @returns Formatted log string
 	 */
 	protected processLogMessage(level: LogLevel, bold: boolean, prefix: string, toLog: LogParam[]) {
-		const color = getColor(level, bold);
+		const color = this.colorsDisabled ? '' : getColor(level, bold);
 		let log = _logger_convertLogParamsToStrings(toLog).join(' ');
-		const linePrefix = `${color}${prefix}${this.keepNaturalColors ? NoColor : ''}`;
+		const linePrefix = `${color}${prefix}${!this.colorsDisabled && this.keepNaturalColors ? NoColor : ''}`;
 
 		if (this.logTransformer)
 			log = this.logTransformer(log);
@@ -155,5 +157,20 @@ export class LogClient_MemBuffer
 	 */
 	public keepLogsNaturalColors(keepNaturalColors = true) {
 		this.keepNaturalColors = keepNaturalColors;
+	}
+
+	/**
+	 * Controls whether ANSI color codes are added to the stored logs.
+	 *
+	 * When disabled, logs are stored as plain text with no color escape sequences -
+	 * useful when the buffer is consumed by something other than a terminal (e.g. shipped
+	 * in a bug report or written to a plain-text sink).
+	 *
+	 * @param disableColors - If true, no ANSI color codes are added. Defaults to true.
+	 * @returns This instance for method chaining
+	 */
+	public disableColors(disableColors = true) {
+		this.colorsDisabled = disableColors;
+		return this;
 	}
 }
