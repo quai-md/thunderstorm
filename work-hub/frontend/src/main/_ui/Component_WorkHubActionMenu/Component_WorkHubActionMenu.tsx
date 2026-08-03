@@ -90,7 +90,7 @@ export class Component_WorkHubActionMenu
 			return item.actions.some(this.hasVisibleActions);
 
 		if (exists(item.visible))
-			return item.visible;
+			return resolveContent(item.visible);
 
 		return item.innerActions?.length ? item.innerActions.some(this.hasVisibleActions) : true;
 	};
@@ -113,7 +113,7 @@ export class Component_WorkHubActionMenu
 	};
 
 	private render_Action = (action: WorkHubItem_MenuAction, index: number) => {
-		if(!this.hasVisibleActions(action))
+		if (!this.hasVisibleActions(action))
 			return;
 
 		if (action.action)
@@ -123,6 +123,10 @@ export class Component_WorkHubActionMenu
 	};
 
 	private render_ActionButton = (action: WorkHubItem_MenuAction, index: number) => {
+		const visible = resolveContent(action.visible);
+		if (exists(visible) && !visible)
+			return;
+
 		const disabled = resolveContent(action.disabled);
 		return <Fragment key={index}>
 			<Button
