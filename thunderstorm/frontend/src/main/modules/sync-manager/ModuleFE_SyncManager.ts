@@ -279,8 +279,14 @@ export class ModuleFE_SyncManager_Class
 			throw new MUSTNeverHappenException(`Trying perform NoSync without an existing rtModule: ${data.dbKey}`);
 
 		//If the cache is already loaded no need to reload
-		if (rtModule.getDataStatus() === DataStatus.ContainsData)
+		if (rtModule.getDataStatus() === DataStatus.ContainsData && rtModule.cache.all().length > 0)
 			return;
+
+		// ContainsData with an empty MemCache means a prior step marked the module ready
+		// without hydrating the cache (e.g. cache cleared with no status change). Don't
+		// trust the status — fall through and reload from IDB.
+		if (rtModule.getDataStatus() === DataStatus.ContainsData)
+			rtModule.logWarning(`ContainsData with empty MemCache — reloading from IDB: ${rtModule.dbDef.dbKey}`);
 
 		this.currentlySyncingModules.push({module: rtModule, syncId: this.generateSyncRequestId()});
 
@@ -343,6 +349,14 @@ export class ModuleFE_SyncManager_Class
 				rtModule.logVerbose(`Cleaning IDB: ${rtModule.dbDef.dbKey}`);
 				await rtModule.IDB.clear(); // Also sets the module's data status to NoData.
 			}
+			// Flip to UpdatingData BEFORE emptying the cache. When cleanIDBOnFullSync is
+			// false the status otherwise stays ContainsData across the whole round-trip, so
+			// the terminal setDataStatus(ContainsData) below is a no-op that dispatches
+			// nothing — AwaitModules never re-derives and components keep rendering the
+			// now-empty cache. The transition also makes the final ContainsData a real
+			// change in both branches. (setDataStatus already dispatches via syncDispatcher.)
+			rtModule.logVerbose(`Firing event (DataStatus.UpdatingData): ${rtModule.dbDef.dbKey}`);
+			rtModule.setDataStatus(DataStatus.UpdatingData);
 			rtModule.logVerbose(`Cleaning Cache: ${rtModule.dbDef.dbKey}`);
 			rtModule.cache.clear();
 
