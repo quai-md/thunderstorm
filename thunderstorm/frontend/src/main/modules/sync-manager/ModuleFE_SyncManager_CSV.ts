@@ -25,7 +25,7 @@ export class ModuleFE_SyncManager_CSV_Class
 		const itemsToSync: any[] = [];
 		const errors: any[] = [];
 
-		await new Promise<void>(resolve => {
+		await new Promise<void>((resolve, reject) => {
 			const isEmulator = Thunder.getInstance().getConfig().label?.toLowerCase() === 'local';
 			const downloadRequestHeaders = isEmulator ? undefined : {[HeaderKey_ContentType]: 'text/csv'};
 			const finalConfig = config ? mergeObject({downloadRequestHeaders}, config) : {downloadRequestHeaders};
@@ -48,33 +48,54 @@ export class ModuleFE_SyncManager_CSV_Class
 					},
 
 					complete: async () => {
-						for(const dbKey of dbKeys) {
-							const items = itemsToSync.filter(item => item.dbKey === dbKey);
-							const module = modules[dbKey];
-							module.setDataStatus(DataStatus.UpdatingData);
-							// Get all docs to upsert
-							const documents = items.map(i => i.document);
+						try {
+							// Any parse error fails the whole sync — surfaced via the session
+							// error UI (ComponentValidateSessionV2) and clears the version key
+							// (ModuleFE_AdvisorSync.syncSnapshot catch), rather than silently
+							// committing partial data.
+							if (errors.length)
+								throw new Error(`CSV parsed with ${errors.length} error(s)`);
+							if (dbKeys.size === 0)
+								throw new Error('CSV parsed but no recognised dbKeys');
 
-							// Run upgrade processors on them from the module
-							await module.upgradeInstances(documents);
+							for (const dbKey of dbKeys) {
+								const items = itemsToSync.filter(item => item.dbKey === dbKey);
+								const module = modules[dbKey];
+								module.setDataStatus(DataStatus.UpdatingData);
+								// Get all docs to upsert
+								const documents = items.map(i => i.document);
 
-							// Upsert items to the idb
-							await module.IDB.syncIndexDb(documents);
-							await module.cache.load();
-							module.setDataStatus(DataStatus.ContainsData);
+								// Run upgrade processors on them from the module
+								await module.upgradeInstances(documents);
+
+								// Upsert items to the idb
+								await module.IDB.syncIndexDb(documents);
+								await module.cache.load();
+								module.setDataStatus(DataStatus.ContainsData);
+							}
+							const end = performance.now();
+							this.logInfo(`sync took ${((end - start) / 1000).toFixed(3)} seconds`);
+							resolve();
+						} catch (e) {
+							this.logError('CSV sync failed', e as Error);
+							reject(e);
 						}
-						const end = performance.now();
-						this.logInfo(`sync took ${((end - start) / 1000).toFixed(3)} seconds`);
-						if (errors.length)
-							this.logError('Parsed with errors', ...errors);
-						resolve();
 					},
 					...finalConfig,
 					error: (error: Error) => {
 						this.logError(`CSV Parsing failed`, error);
+						reject(error);
 					}
 				});
 		});
+	};
+
+	hasAnyData = async (): Promise<boolean> => {
+		for (const module of this.getModulesToSync()) {
+			if (await module.IDB.count() > 0)
+				return true;
+		}
+		return false;
 	};
 
 	readyAllModules = async () => {
