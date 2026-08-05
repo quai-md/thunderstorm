@@ -49,10 +49,9 @@ export class ModuleFE_SyncManager_CSV_Class
 
 					complete: async () => {
 						try {
-							// Any parse error fails the whole sync — surfaced via the session
-							// error UI (ComponentValidateSessionV2) and clears the version key
-							// (ModuleFE_AdvisorSync.syncSnapshot catch), rather than silently
-							// committing partial data.
+							// Any parse error rejects the whole sync so the caller can react to
+							// the failure, rather than silently committing partial data and
+							// resolving as if the sync succeeded.
 							if (errors.length)
 								throw new Error(`CSV parsed with ${errors.length} error(s)`);
 							if (dbKeys.size === 0)
