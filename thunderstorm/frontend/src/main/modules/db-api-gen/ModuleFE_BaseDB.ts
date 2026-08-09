@@ -517,7 +517,7 @@ export class MemCache<Proto extends DBProto<any>> {
 	};
 
 	unique = (_key?: Proto['uniqueParam']): Readonly<Proto['dbType']> | undefined => {
-		if (_key === undefined)
+		if (_key === undefined || _key === null)
 			return _key;
 
 		const _id = typeof _key === 'string' ? _key : (('_id' in (_key as {
