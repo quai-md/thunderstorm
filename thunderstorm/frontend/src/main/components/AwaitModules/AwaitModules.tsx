@@ -63,10 +63,6 @@ export class AwaitModules
 			this.logWarning('Trying to await modules which are not in the module pack:', missingModules);
 	}
 
-	shouldComponentUpdate(): boolean {
-		return true;
-	}
-
 	protected deriveStateFromProps(nextProps: Props, state: State) {
 		//Collect modules that are awaitable
 		state.validModules ??= resolveContent(nextProps.modules).filter(module => {
@@ -86,6 +82,14 @@ export class AwaitModules
 		state.ready = state.validModules.length === state.readyModules.length;
 		state.debug_ShowLoader = !!nextProps.debug_ShowLoader;
 		return state;
+	}
+
+	shouldComponentUpdate(): boolean {
+		return true;
+	}
+
+	public shouldReDeriveState(nextProps: Readonly<Props>): boolean {
+		return true;
 	}
 
 	// ######################### Logic #########################
@@ -158,7 +162,7 @@ export class AwaitModules
 	};
 
 	render() {
-		if(this.state.debug_ShowLoader)
+		if (this.state.debug_ShowLoader)
 			return this.renderLoader();
 
 		if (this.getMissingPermissionModules().length)
