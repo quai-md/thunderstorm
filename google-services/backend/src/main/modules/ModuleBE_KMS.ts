@@ -14,8 +14,22 @@
  * limitations under the License.
  */
 
-import {ImplementationMissingException, Module, MUSTNeverHappenException, ThisShouldNotHappenException} from '@nu-art/ts-common';
+import {
+	ImplementationMissingException,
+	MissingDataException,
+	Module,
+	MUSTNeverHappenException,
+	ThisShouldNotHappenException
+} from '@nu-art/ts-common';
 import {KeyManagementServiceClient, protos} from '@google-cloud/kms';
+
+/** gRPC status codes used by Cloud KMS (google.rpc.Code). */
+const GrpcCode_NotFound = 5;
+const GrpcCode_AlreadyExists = 6;
+
+function isGrpcCode(err: unknown, code: number): boolean {
+	return typeof err === 'object' && err !== null && 'code' in err && (err as { code: unknown }).code === code;
+}
 
 export type ModuleBE_KMS_Config = {
 	projectId?: string;
@@ -90,26 +104,25 @@ export class ModuleBE_KMS_Class
 		return this.client.cryptoKeyVersionPath(ctx.projectId, ctx.locationId, keyRingId, keyId, versionId);
 	}
 
-	/** Create key ring if it does not exist. Idempotent. */
+	/** Create key ring if it does not exist. Idempotent under concurrency (swallows ALREADY_EXISTS). */
 	public ensureKeyRing = async (keyRingId: string, context?: KMSContext): Promise<void> => {
 		const ctx = this.resolveContext(context);
 		const parent = this.getParent(ctx);
 		try {
 			await this.client.getKeyRing({name: this.keyRingPath(ctx, keyRingId)});
 			return;
-		} catch (err: any) {
-			if (err.code !== 5) // NOT_FOUND
-				throw new ThisShouldNotHappenException(`Failed to get key ring ${keyRingId}`, err);
+		} catch (err: unknown) {
+			if (!isGrpcCode(err, GrpcCode_NotFound))
+				throw new ThisShouldNotHappenException(`Failed to get key ring ${keyRingId}`, err instanceof Error ? err : undefined);
 		}
 
-		await this.client.createKeyRing({
-			parent,
-			keyRingId,
-			keyRing: {}
-		});
+		await this.createIgnoringAlreadyExists(
+			() => this.client.createKeyRing({parent, keyRingId, keyRing: {}}),
+			`key ring ${keyRingId}`
+		);
 	};
 
-	/** Create crypto key with given purpose and algorithm if it does not exist. Idempotent. */
+	/** Create crypto key with given purpose and algorithm if it does not exist. Idempotent under concurrency. */
 	public ensureCryptoKey = async (keyRingId: string, keyId: string, options: EnsureCryptoKeyOptions, context?: KMSContext): Promise<void> => {
 		const ctx = this.resolveContext(context);
 		const parent = this.keyRingPath(ctx, keyRingId);
@@ -120,24 +133,57 @@ export class ModuleBE_KMS_Class
 				filter: 'state=ENABLED'
 			});
 			if (versions.length === 0)
-				await this.client.createCryptoKeyVersion({
-					parent: this.cryptoKeyPath(ctx, keyRingId, keyId),
-					cryptoKeyVersion: {}
-				});
+				await this.createIgnoringAlreadyExists(
+					() => this.client.createCryptoKeyVersion({
+						parent: this.cryptoKeyPath(ctx, keyRingId, keyId),
+						cryptoKeyVersion: {}
+					}),
+					`key version ${keyRingId}/${keyId}`
+				);
 			return;
-		} catch (err: any) {
-			if (err.code !== 5)
-				throw new ThisShouldNotHappenException(`Failed to get crypto key ${keyRingId}/${keyId}`, err);
+		} catch (err: unknown) {
+			if (!isGrpcCode(err, GrpcCode_NotFound))
+				throw new ThisShouldNotHappenException(`Failed to get crypto key ${keyRingId}/${keyId}`, err instanceof Error ? err : undefined);
 		}
-		await this.client.createCryptoKey({
-			parent,
-			cryptoKeyId: keyId,
-			cryptoKey: {
-				purpose: options.purpose,
-				versionTemplate: {algorithm: options.algorithm}
-			}
-		});
+
+		await this.createIgnoringAlreadyExists(
+			() => this.client.createCryptoKey({
+				parent,
+				cryptoKeyId: keyId,
+				cryptoKey: {
+					purpose: options.purpose,
+					versionTemplate: {algorithm: options.algorithm}
+				}
+			}),
+			`crypto key ${keyRingId}/${keyId}`
+		);
 	};
+
+	/** Fail if the crypto key is missing. Used to block a JWKS flip before rings exist. */
+	public assertCryptoKeyExists = async (keyRingId: string, keyId: string, context?: KMSContext): Promise<void> => {
+		const ctx = this.resolveContext(context);
+		try {
+			await this.client.getCryptoKey({name: this.cryptoKeyPath(ctx, keyRingId, keyId)});
+		} catch (err: unknown) {
+			if (isGrpcCode(err, GrpcCode_NotFound))
+				throw new MissingDataException(`KMS key ${keyRingId}/${keyId} does not exist`);
+
+			throw new ThisShouldNotHappenException(`Failed to get crypto key ${keyRingId}/${keyId}`, err instanceof Error ? err : undefined);
+		}
+	};
+
+	private async createIgnoringAlreadyExists(create: () => Promise<unknown>, label: string): Promise<void> {
+		try {
+			await create();
+		} catch (err: unknown) {
+			if (isGrpcCode(err, GrpcCode_AlreadyExists)) {
+				this.logDebug(`create raced, ALREADY_EXISTS treated as success — ${label}`);
+				return;
+			}
+
+			throw new ThisShouldNotHappenException(`Failed to create ${label}`, err instanceof Error ? err : undefined);
+		}
+	}
 
 	/** Create a new key version for rotation. Old versions remain until manually destroyed. */
 	public createNewKeyVersion = async (keyRingId: string, keyId: string, context?: KMSContext): Promise<string> => {
