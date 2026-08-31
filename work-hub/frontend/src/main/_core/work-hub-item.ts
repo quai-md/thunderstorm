@@ -1,4 +1,4 @@
-import {generateHex, Logger} from '@nu-art/ts-common';
+import {generateHex, Logger, ResolvableContent} from '@nu-art/ts-common';
 import {ModuleFE_WorkHub} from '../_module/index.js';
 import {MouseEvent, ReactNode} from 'react';
 import {ModuleFE_BaseDB} from '@nu-art/thunderstorm-frontend';
@@ -13,10 +13,10 @@ export class WorkHubItem<Args extends any = void>
 	extends Logger {
 
 	public readonly key: string;
-	public modulesToAwait: ModuleFE_BaseDB<any>[] | undefined;
+	public modulesToAwait?: ModuleFE_BaseDB<any>[];
 	public renderer: WorkHubItemRenderer<Args>;
-	private tabTag: string | undefined;
-	private tabTagLabel: string | undefined;
+	private tabTag?: string;
+	private tabTooltip?: ResolvableContent<ReactNode>;
 	private customMenuActionsResolver: MenuResolver;
 
 	// ######################## Builder ########################
@@ -34,10 +34,20 @@ export class WorkHubItem<Args extends any = void>
 		return this;
 	};
 
-	public setTag = (tag: string, label?: string) => {
+	public setTag = (tag: string, tooltip?: ResolvableContent<ReactNode>) => {
 		this.tabTag = tag;
-		this.tabTagLabel = label;
+		if (tooltip)
+			this.tabTooltip = tooltip;
 		return this;
+	};
+
+	public setTabTooltip = (tooltip: ResolvableContent<ReactNode>) => {
+		this.tabTooltip = tooltip;
+		return this;
+	};
+
+	public getTabTooltip = (): ResolvableContent<ReactNode> | undefined => {
+		return this.tabTooltip;
 	};
 
 	public setModulesToAwait = (modules: ModuleFE_BaseDB<any>[]) => {
@@ -60,7 +70,6 @@ export class WorkHubItem<Args extends any = void>
 		return {
 			itemKey: this.key,
 			tag: this.tabTag,
-			tagLabel: this.tabTagLabel,
 			id,
 			label,
 			renderArgs: args,
