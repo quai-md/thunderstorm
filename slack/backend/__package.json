@@ -43,13 +43,11 @@
     "moment": "?",
     "react": "?",
     "react-dom": "?",
-    "react-router-dom": "?"
+    "react-router": "?"
   },
   "devDependencies": {
     "@types/react": "?",
-    "@types/react-dom": "?",
-    "@types/react-router": "?",
-    "@types/react-router-dom": "?"
+    "@types/react-dom": "?"
   },
   "unitConfig": {
     "type": "typescript-lib"

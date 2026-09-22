@@ -45,7 +45,7 @@
     "firebase-functions": "?",
     "react": "?",
     "react-dom": "?",
-    "react-router-dom": "?",
+    "react-router": "?",
     "moment": "?",
     "saml2-js": "^4.0.1",
     "express": "?"
@@ -54,8 +54,6 @@
     "@types/react": "?",
     "@types/express": "?",
     "@types/react-dom": "?",
-    "@types/react-router": "?",
-    "@types/react-router-dom": "?",
     "@types/chai": "^4.3.4",
     "@types/mocha": "^10.0.1",
     "@types/history": "^4.7.2",
