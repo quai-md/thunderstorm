@@ -35,7 +35,7 @@
     "@nu-art/thunderstorm-shared": "?",
     "react": "?",
     "react-dom": "?",
-    "react-router-dom": "?",
+    "react-router": "?",
     "@slack/web-api": "7.13.0",
     "firebase": "?",
     "firebase-admin": "?",

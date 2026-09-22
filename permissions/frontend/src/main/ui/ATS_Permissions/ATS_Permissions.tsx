@@ -21,7 +21,7 @@ import {ModuleFE_PermissionProject} from '../../_entity/permission-project/index
 import {ModuleFE_PermissionDomain} from '../../_entity/permission-domain/index.js';
 import {ModuleFE_PermissionGroup} from '../../_entity/permission-group/index.js';
 import {ModuleFE_PermissionUser} from '../../_entity/permission-user/index.js';
-import {Outlet} from 'react-router-dom';
+import {Outlet} from 'react-router';
 import {PermissionUsersEditor} from '../permission-editors/permission-users-editor.js';
 import {PermissionProjectsEditor} from '../permission-editors/permission-project-editor/permission-projects-editor.js';
 import {PermissionDomainsEditor} from '../permission-editors/permission-domains-editor.js';

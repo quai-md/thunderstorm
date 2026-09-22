@@ -51,7 +51,7 @@
     "moment": "?",
     "react": "?",
     "react-dom": "?",
-    "react-router-dom": "?",
+    "react-router": "?",
     "saml2-js": "^4.0.1"
   },
   "devDependencies": {
