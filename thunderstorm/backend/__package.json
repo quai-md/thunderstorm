@@ -75,8 +75,6 @@
     "@types/cors": "^2.8.17",
     "@types/react": "?",
     "@types/react-dom": "?",
-    "@types/react-router": "?",
-    "@types/react-router-dom": "?",
     "@types/compression": "^1.7.0",
     "@types/express": "?",
     "@types/history": "^4.7.2",

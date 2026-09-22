@@ -89,7 +89,6 @@
   },
   "devDependencies": {
     "@types/react": "?",
-    "@types/react-router-dom": "?",
     "@types/chart.js": "^2.9.4",
     "@types/d3-array": "^2.8.0",
     "@types/d3-scale": "^3.2.1",
