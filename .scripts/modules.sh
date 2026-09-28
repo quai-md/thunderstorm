@@ -15,6 +15,7 @@ tsLibs=(
   live-docs
   user-account
   permissions
+  prompting
   ts-short-url
   ts-dependency-viewer
   ts-focused-object
