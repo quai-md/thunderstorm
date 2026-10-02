@@ -18,6 +18,7 @@ import {
 	ApiDef_SyncEnv,
 	ApiModule,
 	BodyApi,
+	Const_SyncEnv_ChunkSize,
 	DBModuleType,
 	FetchBackupDoc,
 	HeaderKey_Authorization,
@@ -31,6 +32,7 @@ import {
 	Response_BackupDocs,
 	Response_FetchBackupMetadata,
 	Response_GetLatestBackupDelta,
+	Response_GetSyncableCollections,
 	Response_SyncFromEnv,
 	SyncEnv_DeletedDocRef,
 	SyncEnvDeltaSummary
@@ -42,7 +44,7 @@ import {Storm} from '../../core/Storm.js';
 import {ModuleBE_BackupDocDB} from '../../_entity/backup-doc/index.js';
 import {ModuleBE_SyncManager} from '../sync-manager/ModuleBE_SyncManager.js';
 import {ModuleBE_BaseDB} from '../db-api-gen/ModuleBE_BaseDB.js';
-import {SyncEnvDeltaSummaryBuilder} from './sync-env-delta.js';
+import {SyncEnvDeltaSummaryBuilder, SyncEnvLocalNewerTracker, SyncEnv_LocalNewerMap} from './sync-env-delta.js';
 import {Readable, Transform, Writable} from 'stream';
 import {firestore} from 'firebase-admin';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
@@ -56,6 +58,8 @@ type Config = {
 	allowCleanSync?: boolean;
 	allowSyncEnv?: boolean;
 	allowedEnvsToSyncFrom?: string[]
+	/** dbKeys this env is allowed to pull. Backend owns the list; FE queries it. */
+	syncableCollections?: string[]
 }
 
 /**
@@ -87,6 +91,7 @@ class ModuleBE_SyncEnv_Class
 			createBodyServerApi(ApiDef_SyncEnv.vv1.syncFromEnvBackup, this.syncFromEnvBackup),
 			createBodyServerApi(ApiDef_SyncEnv.vv1.getLatestBackupDelta, this.getLatestBackupDelta),
 			createBodyServerApi(ApiDef_SyncEnv.vv1.syncLatestFromEnv, this.syncLatestFromEnv),
+			createQueryServerApi(ApiDef_SyncEnv.vv1.getSyncableCollections, this.getSyncableCollections),
 			createQueryServerApi(ApiDef_SyncEnv.vv1.getLatestBackup, this.getLatestBackupId),
 			createQueryServerApi(ApiDef_SyncEnv.vv1.createBackup, this.createBackup),
 			createQueryServerApi(ApiDef_SyncEnv.vv1.fetchBackupMetadata, this.fetchBackupMetadata),
@@ -174,40 +179,83 @@ class ModuleBE_SyncEnv_Class
 		return perModule.flat();
 	};
 
-	/**
-	 * Local-only trigger (the "fast sync" button / ATS action). Reads the per-env watermark, asks the source env's
-	 * {@link getLatestBackupDelta} for its latest backup + tombstones-since-watermark, applies the change-tracked
-	 * delta locally, then advances the watermark to the applied backup's timestamp. Fails fast if the source env
-	 * does not expose the delta API (it must be deployed there first).
-	 */
-	syncLatestFromEnv = async (body: Request_SyncLatestFromEnv): Promise<Response_SyncFromEnv> => {
+	getSyncableCollections = async (): Promise<Response_GetSyncableCollections> => {
+		return {collections: this.requireSyncableCollections()};
+	};
+
+	private currentEnv = () => Storm.getInstance().getEnvironment().toLowerCase();
+
+	private requireSyncableCollections = (): string[] => {
+		const collections = this.config.syncableCollections;
+		if (!collections?.length)
+			throw new MUSTNeverHappenException(`SyncEnv.syncableCollections is not configured on this env.`);
+
+		return collections;
+	};
+
+	private resolveSelectedModules = (requested: string[]): string[] => {
+		const allowed = this.requireSyncableCollections();
+		if (!requested.length)
+			throw new BadImplementationException('selectedModules must be provided.');
+
+		const unknown = requested.filter(dbKey => !allowed.includes(dbKey));
+		if (unknown.length)
+			throw new BadImplementationException(`Collections not syncable: ${unknown.join(', ')}`);
+
+		return requested;
+	};
+
+	private assertCanSyncIntoThisEnv = (sourceEnv: string, rejectOnProd: boolean) => {
 		if (!this.config.allowSyncEnv)
 			throw new MUSTNeverHappenException(`SyncEnv is disabled on this env- to sync into this env, add 'allowSyncEnv: true'.`);
 
-		if (Storm.getInstance().getEnvironment().toLowerCase() === 'prod' && body.env.toLowerCase() !== 'prod')
+		if (rejectOnProd && this.currentEnv() === 'prod')
+			throw new MUSTNeverHappenException('Fast sync is disabled on prod.');
+
+		if (this.currentEnv() === 'prod' && sourceEnv.toLowerCase() !== 'prod')
 			throw new MUSTNeverHappenException('MUST NEVER SYNC ENV THAT IS NOT PROD TO PROD!!');
 
-		if (this.config.allowedEnvsToSyncFrom && !this.config.allowedEnvsToSyncFrom.includes(body.env))
-			throw new MUSTNeverHappenException(`Env ${Storm.getInstance().getEnvironment()
-				.toLowerCase()} doesn't have env ${body.env} in it's allowedEnvsToSyncFrom list.`);
+		if (this.config.allowedEnvsToSyncFrom && !this.config.allowedEnvsToSyncFrom.includes(sourceEnv))
+			throw new MUSTNeverHappenException(`Env ${this.currentEnv()} doesn't have env ${sourceEnv} in it's allowedEnvsToSyncFrom list.`);
+	};
 
-		const indicator = body.forceFull ? undefined : await this.getEnvSyncIndicator(body.env);
+	/**
+	 * Local-only trigger (the "fast sync" button / ATS action). Reads the per-env watermark, asks the source env's
+	 * {@link getLatestBackupDelta} for its latest backup + tombstones-since-watermark, applies the change-tracked
+	 * delta locally (including local-newer revert / local-only delete), then advances the watermark.
+	 * Fails fast if the source env does not expose the delta API (it must be deployed there first).
+	 */
+	syncLatestFromEnv = async (body: Request_SyncLatestFromEnv): Promise<Response_SyncFromEnv> => {
+		this.assertCanSyncIntoThisEnv(body.env, true);
+		const selectedModules = this.resolveSelectedModules(body.selectedModules);
+
+		if (body.cleanSync) {
+			if (!this.config.allowCleanSync)
+				throw new MUSTNeverHappenException(`CleanSync is disabled on this env- to CleanSync into this env, add 'allowCleanSync: true'.`);
+
+			await this.wipeCollections(selectedModules);
+		}
+
+		const resetWatermark = !!body.forceFull || !!body.cleanSync;
+		const indicator = resetWatermark ? undefined : await this.getEnvSyncIndicator(body.env);
 		const watermark = indicator?.backupTimestamp ?? 0;
 
-		this.logInfoBold(`Fast delta sync from env '${body.env}' — watermark: ${watermark}, forceFull: ${!!body.forceFull}`);
+		this.logInfoBold(`Fast delta sync from env '${body.env}' — watermark: ${watermark}, forceFull: ${!!body.forceFull}, cleanSync: ${!!body.cleanSync}`);
 		const {backupInfo, deletedDocs} = await this.fetchLatestBackupDeltaFromEnv(body.env, {
 			sinceTimestamp: body.deleteMissing ? watermark : 0,
-			selectedModules: body.selectedModules,
+			selectedModules,
 		});
 		const backupTimestamp = backupInfo.metadata?.timestamp ?? currentTimeMillis();
+		const localNewer = await this.collectLocalNewer(selectedModules, watermark);
 
 		const stream = await ModuleBE_BackupDocDB.createBackupReadStream(backupInfo);
 		const summary = await this.applyBackupStreamDelta(stream, {
-			selectedModules: body.selectedModules,
+			selectedModules,
 			watermark,
-			chunkSize: body.chunkSize,
+			chunkSize: body.chunkSize ?? Const_SyncEnv_ChunkSize,
 			deleteMissing: body.deleteMissing,
 			deletedDocs,
+			localNewer,
 		});
 
 		await this.setEnvSyncIndicator(body.env, {backupTimestamp, syncTimestamp: currentTimeMillis()});
@@ -215,6 +263,32 @@ class ModuleBE_SyncEnv_Class
 		this.logInfo(`----  Syncing Other Modules... ----`);
 		await dispatch_OnSyncEnvCompleted.dispatchModuleAsync(body.env, this.config.urlMap[body.env], this.config.sessionMap[body.env]!);
 		return {summary};
+	};
+
+	private wipeCollections = async (selectedModules: string[]) => {
+		this.logInfo(`----  Cleaning Collections From DB... ----`);
+		const modulesToDelete = RuntimeModules().filter((module: DBModuleType) => selectedModules.includes(module.dbDef?.dbKey));
+		for (const module of modulesToDelete) {
+			await (module as ModuleBE_BaseDB<any>).collection.delete.yes.iam.sure.iwant.todelete.the.collection.delete();
+			this.logInfo(`----  Cleaned Collection ${module.dbDef!.dbKey} ----`);
+		}
+	};
+
+	private collectLocalNewer = async (selectedModules: string[], watermark: number): Promise<SyncEnv_LocalNewerMap> => {
+		const modules = arrayToMap(RuntimeModules()
+			.filter((module: DBModuleType) => !(!module || !module.dbDef)), module => module.dbDef!.dbKey);
+		const localNewer: SyncEnv_LocalNewerMap = {};
+
+		await Promise.all(selectedModules.map(async dbKey => {
+			const module = modules[dbKey] as ModuleBE_BaseDB<any> | undefined;
+			if (!module)
+				throw new BadImplementationException(`No DB module for syncable collection '${dbKey}'.`);
+
+			const items = await module.query.custom({where: {__updated: {$gt: watermark}}});
+			localNewer[dbKey] = new Set(items.map(item => item._id));
+		}));
+
+		return localNewer;
 	};
 
 	/** Calls the source env's {@link getLatestBackupDelta} using the configured per-env url + session headers. */
@@ -233,19 +307,11 @@ class ModuleBE_SyncEnv_Class
 	};
 
 	syncFromEnvBackup = async (body: Request_FetchFromEnv): Promise<Response_SyncFromEnv> => {
-		if (!this.config.allowSyncEnv)
-			throw new MUSTNeverHappenException(`SyncEnv is disabled on this env- to sync into this env, add 'allowSyncEnv: true'.`);
+		this.assertCanSyncIntoThisEnv(body.env, false);
 
 		//CleanSync means deleting collections before syncing them
 		if (!this.config.allowCleanSync && body.cleanSync)
 			throw new MUSTNeverHappenException(`CleanSync is disabled on this env- to CleanSync into this env, add 'allowCleanSync: true'.`);
-
-		if (Storm.getInstance().getEnvironment().toLowerCase() === 'prod' && body.env.toLowerCase() !== 'prod')
-			throw new MUSTNeverHappenException('MUST NEVER SYNC ENV THAT IS NOT PROD TO PROD!!');
-
-		if (this.config.allowedEnvsToSyncFrom && !this.config.allowedEnvsToSyncFrom.includes(body.env))
-			throw new MUSTNeverHappenException(`Env ${Storm.getInstance().getEnvironment()
-				.toLowerCase()} doesn't have env ${body.env} in it's allowedEnvsToSyncFrom list.`);
 
 		this.logInfoBold('Received API call Fetch From Env!');
 		this.logInfo(`Origin env: ${body.env}, backupId: ${body.backupId}`);
@@ -328,10 +394,11 @@ class ModuleBE_SyncEnv_Class
 	};
 
 	/**
-	 * Reusable change-tracked apply engine. Streams a backup, upserts only docs whose `__updated`
-	 * exceeds the watermark, and (when `deleteMissing` + `deletedDocs` are provided) removes
-	 * source-deleted docs locally. Returns a per-dbKey accounting. The caller owns watermark
-	 * computation and indicator persistence so a partial failure never advances the watermark.
+	 * Reusable change-tracked apply engine. Streams a backup, upserts docs whose `__updated`
+	 * exceeds the watermark (or whose id is in `localNewer` — force-revert), deletes unseen
+	 * local-newer ids, and (when `deleteMissing` + `deletedDocs` are provided) removes
+	 * source-deleted docs locally. The caller owns watermark persistence so a partial failure
+	 * never advances the watermark.
 	 */
 	applyBackupStreamDelta = async (stream: Readable, options: {
 		selectedModules: string[],
@@ -339,15 +406,22 @@ class ModuleBE_SyncEnv_Class
 		chunkSize: number,
 		deleteMissing?: boolean,
 		deletedDocs?: SyncEnv_DeletedDocRef[],
+		localNewer?: SyncEnv_LocalNewerMap,
 	}): Promise<SyncEnvDeltaSummary> => {
 		const summaryBuilder = new SyncEnvDeltaSummaryBuilder(options.watermark);
-		const writer = new CollectionDeltaWriter(options.chunkSize, summaryBuilder, options.selectedModules);
+		const writer = new CollectionDeltaWriter(options.chunkSize, summaryBuilder, options.selectedModules, options.localNewer);
 		await new Promise<void>((resolve, reject) => {
 			stream
 				.pipe(writer)
 				.on('finish', () => resolve())
 				.on('error', reject);
 		});
+
+		if (options.localNewer) {
+			const unseen = writer.unseenLocalNewer();
+			if (unseen.length)
+				await this.applyDeletes(unseen, options.selectedModules, options.chunkSize, summaryBuilder);
+		}
 
 		if (options.deleteMissing && options.deletedDocs?.length)
 			await this.applyDeletes(options.deletedDocs, options.selectedModules, options.chunkSize, summaryBuilder);
@@ -509,9 +583,8 @@ class CollectionBatchWriter
 
 /**
  * Change-tracked variant of {@link CollectionBatchWriter}: filters by selected modules and a watermark in a
- * single pass, upserting only docs whose `__updated` is strictly newer than the watermark and recording a
- * per-dbKey {upserted, skipped} tally. Skipped docs are never read or written, which is what keeps the
- * delta sync cheap on repeat runs.
+ * single pass, upserting docs whose `__updated` is strictly newer than the watermark (or whose id is in
+ * the local-newer map — force revert). Skipped docs are never written.
  */
 class CollectionDeltaWriter
 	extends Writable {
@@ -520,21 +593,25 @@ class CollectionDeltaWriter
 	private readonly paginationSize: number;
 	private readonly summaryBuilder: SyncEnvDeltaSummaryBuilder;
 	private readonly allowedDbKeys: Set<string>;
+	private readonly localNewer?: SyncEnvLocalNewerTracker;
 	private firestore: firestore.Firestore;
 	private batchWriter: firestore.WriteBatch;
 	private modules;
 
-	constructor(paginationSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder, selectedModules: string[]) {
+	constructor(paginationSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder, selectedModules: string[], localNewer?: SyncEnv_LocalNewerMap) {
 		super({objectMode: true});
 		this.paginationSize = paginationSize;
 		this.summaryBuilder = summaryBuilder;
 		this.allowedDbKeys = new Set(selectedModules);
+		this.localNewer = localNewer ? new SyncEnvLocalNewerTracker(localNewer) : undefined;
 		const firebaseSessionAdmin = ModuleBE_Firebase.createAdminSession();
 		this.firestore = firebaseSessionAdmin.getFirestoreV3().firestore;
 		this.batchWriter = this.firestore.batch();
 		this.modules = arrayToMap(RuntimeModules()
 			.filter((module: DBModuleType) => !(!module || !module.dbDef)), module => module.dbDef!.dbKey);
 	}
+
+	unseenLocalNewer = () => this.localNewer?.unseen() ?? [];
 
 	async _write(chunk: any, encoding: string, callback: (error?: Error | null) => void) {
 		try {
@@ -548,7 +625,11 @@ class CollectionDeltaWriter
 			}
 
 			const data = JSON.parse(chunk.document);
-			if (!this.summaryBuilder.considerUpsert(chunk.dbKey, data.__updated))
+			const force = this.localNewer?.isLocalNewer(chunk.dbKey, chunk._id) ?? false;
+			if (force)
+				this.localNewer!.markSeen(chunk.dbKey, chunk._id);
+
+			if (!this.summaryBuilder.considerUpsert(chunk.dbKey, data.__updated, force))
 				return callback();
 
 			const docRef = this.firestore.doc(`${module.dbDef!.backend.name}/${chunk._id}`);

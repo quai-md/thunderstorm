@@ -62,17 +62,23 @@ after success:  watermark ← this backup's timestamp
 
 ```
 1. Read the watermark for this source env      (none → full import from 0)
-2. Ask the source for its latest backup + tombstones-since-watermark
-3. Stream the backup:
+2. Collect local docs with __updated > watermark  (local-newer map)
+3. Ask the source for its latest backup + tombstones-since-watermark
+4. Stream the backup:
      for each row:
-       advance cursor
-       if row.__updated > watermark → upsert   else → skip
-       every 1000 rows: commit batch, THEN save cursor
-4. If "delete missing": apply the source tombstones locally
-5. On full success: advance the watermark to this backup's timestamp; mark completed
+       if id is in the local-newer map → force-upsert (take the backup row) and mark seen
+       else if row.__updated > watermark → upsert
+       else → skip
+5. Delete local-newer ids that never appeared in the backup
+6. If "delete missing": apply the source tombstones locally
+7. On full success: advance the watermark to this backup's timestamp
 ```
 
-Steps 2–4 are the only work; step 1 and 5 are cheap bookkeeping.
+Steps 2–6 are the only work; step 1 and 7 are cheap bookkeeping.
+
+**One-click (KM account menu):** one `syncLatestFromEnv` call for every collection in `syncableCollections`, `deleteMissing` on, source always `prod`. Disabled on prod. Shift-click opens a modal that can wipe+sync per collection via a parallel-2 queue.
+
+**Syncable list:** `ModuleBE_SyncEnv.config.syncableCollections` is the only source. The frontend queries `getSyncableCollections` before running.
 
 ---
 
@@ -100,10 +106,12 @@ Resume is **manual** (re-trigger / a Resume action in the UI). Raising the funct
 | Capability | What it does | Runs on |
 |------------|--------------|---------|
 | **Latest-backup feed** (`getLatestBackupDelta`) | Hands back the latest backup to stream + the tombstones deleted since the caller's watermark. One round trip covers upserts **and** deletes. Cheap. | **Source** |
-| **Delta sync trigger** (`syncLatestFromEnv`) | Reads watermark → pulls the feed → runs / resumes the delta apply → advances watermark on success. | **Target** |
+| **Delta sync trigger** (`syncLatestFromEnv`) | Reads watermark → pulls the feed → applies local-newer revert / local-only delete → advances watermark on success. | **Target** |
+| **Syncable list** (`getSyncableCollections`) | Returns `config.syncableCollections`. Frontend queries this; backend rejects unknown dbKeys. | **Target** |
 | **Progress readout** (`getSyncStatus`) | Reports the live `SyncProgress` so the UI can show a running sync and offer Resume. | **Target** |
 | **`deleteMissing` flag** | Mirror source deletions (off = upserts only). | Target |
 | **`forceFull` flag** | Ignore the watermark/progress and re-import everything. | Target |
+| **`cleanSync` flag** | Wipe the selected collections before applying (modal per-collection only). | Target |
 
 ---
 
@@ -148,9 +156,9 @@ flowchart TD
 
 ## Scope
 
-**Shipped:** delta engine + watermark; source feed (`getLatestBackupDelta`); target trigger (`syncLatestFromEnv`); ATS toggles (`delta` / `deleteMissing` / `forceFull`).
+**Shipped:** delta engine + watermark; source feed (`getLatestBackupDelta`); target trigger (`syncLatestFromEnv`) with local-newer revert / local-only delete; `getSyncableCollections`; `ModuleFE_SyncEnvV2` helpers; KM account-menu one-click (click) + per-collection wipe modal (shift-click); ATS toggles (`delta` / `deleteMissing` / `forceFull`).
 
-**Not shipped:** `SyncProgress` cursor + resume + `getSyncStatus`; the new methods on `ModuleFE_SyncEnvV2`; an ATS "fast sync" action wired to `syncLatestFromEnv`; the defaulted KM App-Tools button; tests for tombstone gathering + apply orchestration; deploying the source feed to prod.
+**Not shipped:** `SyncProgress` cursor + resume + `getSyncStatus`; websockets for live progress; deploying the source feed to prod; raising the Cloud Function / client timeout to 1800s. `syncableCollections` must be set on each target env's `ModuleBE_SyncEnv` RTDB config.
 
 ---
 

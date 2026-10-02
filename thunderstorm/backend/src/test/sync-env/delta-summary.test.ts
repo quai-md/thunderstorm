@@ -1,5 +1,5 @@
 import {expect} from 'chai';
-import {SyncEnvDeltaSummaryBuilder} from '../../main/modules/sync-env/sync-env-delta.js';
+import {SyncEnvDeltaSummaryBuilder, SyncEnvLocalNewerTracker} from '../../main/modules/sync-env/sync-env-delta.js';
 
 /**
  * Pure unit coverage for the watermark decision + per-dbKey accounting that drives the delta sync.
@@ -53,5 +53,30 @@ describe('SyncEnv - delta summary builder', () => {
 			vars: {upserted: 1, deleted: 0, skipped: 1},
 			tags: {upserted: 1, deleted: 1, skipped: 0},
 		});
+	});
+
+	it('force-upserts a stale local-newer doc', () => {
+		const builder = new SyncEnvDeltaSummaryBuilder(100);
+		expect(builder.considerUpsert('vars', 50, true)).to.equal(true);
+		expect(builder.summary.vars).to.deep.equal({upserted: 1, deleted: 0, skipped: 0});
+	});
+});
+
+describe('SyncEnv - local-newer tracker', () => {
+
+	it('force-upserts ids seen in the backup and reports unseen as deletes', () => {
+		const tracker = new SyncEnvLocalNewerTracker({
+			vars: new Set(['keep', 'drop']),
+			tags: new Set(['gone']),
+		});
+
+		expect(tracker.isLocalNewer('vars', 'keep')).to.equal(true);
+		expect(tracker.isLocalNewer('vars', 'other')).to.equal(false);
+		tracker.markSeen('vars', 'keep');
+
+		expect(tracker.unseen()).to.have.deep.members([
+			{__collectionName: 'vars', __docId: 'drop'},
+			{__collectionName: 'tags', __docId: 'gone'},
+		]);
 	});
 });

@@ -38,6 +38,9 @@ export type Response_GetLatestBackupDelta = {
 	deletedDocs: SyncEnv_DeletedDocRef[]
 }
 
+export const Const_SyncEnv_SourceProd = 'prod';
+export const Const_SyncEnv_ChunkSize = 500;
+
 /** Local-only trigger: change-tracked sync from the source env's latest backup, applying source deletions. */
 export type Request_SyncLatestFromEnv = {
 	env: string
@@ -45,6 +48,12 @@ export type Request_SyncLatestFromEnv = {
 	selectedModules: string[]
 	deleteMissing?: boolean
 	forceFull?: boolean
+	/** Wipe the selected collections before applying (modal per-collection full sync). */
+	cleanSync?: boolean
+}
+
+export type Response_GetSyncableCollections = {
+	collections: string[]
 }
 
 export type Request_FetchFirebaseBackup = { backupId: UniqueId, env: string }
@@ -60,6 +69,7 @@ export type ApiStruct_SyncEnv = {
 		syncFromEnvBackup: BodyApi<Response_SyncFromEnv, Request_FetchFromEnv>
 		getLatestBackupDelta: BodyApi<Response_GetLatestBackupDelta, Request_GetLatestBackupDelta>
 		syncLatestFromEnv: BodyApi<Response_SyncFromEnv, Request_SyncLatestFromEnv>
+		getSyncableCollections: QueryApi<Response_GetSyncableCollections>
 		createBackup: QueryApi<{ pathToBackup: string } | undefined>,
 		fetchBackupMetadata: QueryApi<Response_FetchBackupMetadata, Request_GetMetadata>,
 		syncFirebaseFromBackup: QueryApi<any, Request_FetchFirebaseBackup>
@@ -73,6 +83,7 @@ export const ApiDef_SyncEnv: ApiDefResolver<ApiStruct_SyncEnv> = {
 		syncFromEnvBackup: {method: HttpMethod.POST, path: 'v1/sync-env/fetch-from-env-v2', timeout: 5 * Minute},
 		getLatestBackupDelta: {method: HttpMethod.POST, path: 'v1/sync-env/get-latest-backup-delta', timeout: 5 * Minute},
 		syncLatestFromEnv: {method: HttpMethod.POST, path: 'v1/sync-env/sync-latest-from-env', timeout: 5 * Minute},
+		getSyncableCollections: {method: HttpMethod.GET, path: 'v1/sync-env/get-syncable-collections'},
 		createBackup: {method: HttpMethod.GET, path: 'v1/sync-env/create-backup-v2', timeout: 5 * Minute},
 		fetchBackupMetadata: {method: HttpMethod.GET, path: 'v1/sync-env/fetch-backup-metadata', timeout: 5 * Minute},
 		syncFirebaseFromBackup: {method: HttpMethod.GET, path: 'v1/sync-env/fetch-firebase-backup', timeout: 5 * Minute}

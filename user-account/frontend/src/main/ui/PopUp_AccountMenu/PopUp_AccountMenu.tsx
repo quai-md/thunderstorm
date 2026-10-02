@@ -52,7 +52,7 @@ export type PopUp_AccountMenu_Action = {
 	id?: string;
 } & (
 	{ type: 'page', pageKey: string, content: PopUp_AccountMenu_Action_ContentFunction }
-	| { type: 'action', closePopUp?: boolean, action: () => (Promise<void> | void) }
+	| { type: 'action', closePopUp?: boolean, disabled?: boolean, action: (e: React.MouseEvent) => (Promise<void> | void) }
 	)
 
 export class PopUp_AccountMenu
@@ -120,12 +120,14 @@ export class PopUp_AccountMenu
 		ModuleFE_Account.logout();
 	};
 
-	private onActionClick = (action: PopUp_AccountMenu_Action) => {
+	private onActionClick = (action: PopUp_AccountMenu_Action, e: React.MouseEvent) => {
 		switch (action.type) {
 			case 'action': {
+				if (action.disabled)
+					return;
 				if (action.closePopUp)
 					this.closePopUp();
-				action.action();
+				action.action(e);
 				break;
 			}
 
@@ -208,8 +210,9 @@ export class PopUp_AccountMenu
 					key={i}
 					variant={'secondary'}
 					id={menuAction.id}
+					disabled={menuAction.type === 'action' && menuAction.disabled}
 					className={_className(menuAction.className)}
-					onClick={() => this.onActionClick(menuAction)}>{menuAction.label}</Button>;
+					onClick={(e) => this.onActionClick(menuAction, e)}>{menuAction.label}</Button>;
 			})}
 		</Grid>;
 	};
