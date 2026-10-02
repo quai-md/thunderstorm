@@ -62,6 +62,7 @@ type State = {
 	delta: boolean
 	deleteMissing: boolean
 	forceFull: boolean
+	fullBackup: boolean
 }
 
 export class ATS_SyncEnvironment
@@ -86,6 +87,7 @@ export class ATS_SyncEnvironment
 		state.delta ??= false;
 		state.deleteMissing ??= false;
 		state.forceFull ??= false;
+		state.fullBackup ??= false;
 
 		//Add local module data
 		state.moduleList = this.getCollectionModuleList().reduce<TypedMap<ModuleMetadata>>((toRet, name) => {
@@ -173,7 +175,7 @@ export class ATS_SyncEnvironment
 	private createNewBackup = async () => {
 		return genericNotificationAction(async () => {
 			this.setState({backingUpInProgress: true}, async () => {
-				const toRet = await ModuleFE_SyncEnvV2.vv1.createBackup({}).executeSync();
+				const toRet = await ModuleFE_SyncEnvV2.vv1.createBackup({delta: !this.state.fullBackup}).executeSync();
 				this.setState({backingUpInProgress: false});
 				return toRet;
 			});
@@ -309,6 +311,12 @@ export class ATS_SyncEnvironment
 		return <TS_PropRenderer.Vertical label={'Operations'}>
 			<LL_H_C className={'sync-env-page__operations'}>
 				<Button onClick={this.createNewBackup}>Trigger Backup</Button>
+				<TS_Checkbox
+					checked={this.state.fullBackup}
+					onCheck={(value) => {
+						this.setState({fullBackup: value});
+					}}
+				>Full Backup</TS_Checkbox>
 				<Button onClick={this.syncEnv} disabled={!this.canSync()}>Sync Environment</Button>
 				{Thunder.getInstance().getConfig().name?.toLowerCase() === this.state.selectedEnv && <Button
 					onClick={this.syncFirebase}

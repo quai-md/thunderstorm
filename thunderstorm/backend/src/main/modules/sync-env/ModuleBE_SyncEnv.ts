@@ -19,6 +19,8 @@ import {
 	ApiModule,
 	BodyApi,
 	Const_SyncEnv_ChunkSize,
+	Request_CreateBackup,
+	resolveDeltaQueryFlag,
 	DBModuleType,
 	FetchBackupDoc,
 	HeaderKey_Authorization,
@@ -141,8 +143,8 @@ class ModuleBE_SyncEnv_Class
 		console.log(response);
 	}
 
-	createBackup = async () => {
-		return ModuleBE_BackupDocDB.initiateBackup(true);
+	createBackup = async (query?: Request_CreateBackup) => {
+		return ModuleBE_BackupDocDB.initiateBackup(true, undefined, resolveDeltaQueryFlag(query?.delta, true));
 	};
 
 	getLatestBackupId = async () => {

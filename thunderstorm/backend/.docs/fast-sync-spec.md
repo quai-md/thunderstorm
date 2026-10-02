@@ -156,7 +156,7 @@ flowchart TD
 
 ## Scope
 
-**Shipped:** delta engine + watermark; source feed (`getLatestBackupDelta`); target trigger (`syncLatestFromEnv`) with local-newer revert / local-only delete; `getSyncableCollections`; `ModuleFE_SyncEnvV2` helpers; KM account-menu one-click (click) + per-collection wipe modal (shift-click); ATS toggles (`delta` / `deleteMissing` / `forceFull`).
+**Shipped:** delta engine + watermark; source feed (`getLatestBackupDelta`); target trigger (`syncLatestFromEnv`) with local-newer revert / local-only delete; `getSyncableCollections`; `ModuleFE_SyncEnvV2` helpers; KM account-menu one-click (click) + per-collection wipe modal (shift-click); ATS toggles (`delta` / `deleteMissing` / `forceFull`); delta `initiateBackup` (artifact + SyncEnv default; scheduler stays full).
 
 **Not shipped:** `SyncProgress` cursor + resume + `getSyncStatus`; websockets for live progress; deploying the source feed to prod; raising the Cloud Function / client timeout to 1800s. `syncableCollections` must be set on each target env's `ModuleBE_SyncEnv` RTDB config.
 
@@ -165,6 +165,6 @@ flowchart TD
 ## What this is not
 
 - **Not live replication** — it applies a point-in-time backup snapshot, not a continuous mirror.
-- **Not a backup producer** — it consumes backups the platform already makes.
+- **Not a delta file** — `initiateBackup(delta=true)` still writes a full snapshot. It copies the last CSV and overlays only docs / `__deleted__docs` newer than that backup's `metadata.timestamp`.
 - **Not automatic** — syncs (and resumes) are triggered, not scheduled.
-- **Not a full copy every time** — unchanged docs are skipped; only the delta is applied.
+- **Not a full Firestore scan every time** — unchanged docs are copied from the last snapshot; the 24h scheduler is the remaining full scan.

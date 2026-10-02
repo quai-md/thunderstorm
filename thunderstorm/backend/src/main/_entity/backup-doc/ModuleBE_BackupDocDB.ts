@@ -24,7 +24,7 @@ import {ModuleBE_Firebase} from '@nu-art/firebase-backend';
 import {_EmptyQuery, FirestoreQuery} from '@nu-art/firebase-shared';
 import {Readable} from 'stream';
 import {FirestoreCollectionV3} from '@nu-art/firebase-backend';
-import {ApiDef, BackupMetaData, DB_BackupDoc, DBProto_BackupDoc, FetchBackupDoc, HttpMethod, QueryApi} from '@nu-art/thunderstorm-shared';
+import {ApiDef, BackupMetaData, DB_BackupDoc, DBDef_DeletedDoc, DBProto_BackupDoc, FetchBackupDoc, HttpMethod, QueryApi} from '@nu-art/thunderstorm-shared';
 import {addRoutes} from '../../modules/ModuleBE_APIs.js';
 import {ApiDef_BackupDoc, Request_BackupId, Response_BackupDocs} from '@nu-art/thunderstorm-shared/_entity/backup-doc/api-def';
 import {createQueryServerApi} from '../../core/typed-api.js';
@@ -34,6 +34,7 @@ import {MemKey_HttpRequestHeaders} from '../../modules/server/consts.js';
 import {AxiosHttpModule} from '../../index.js';
 import {CSVModuleV3} from '@nu-art/ts-common/modules/CSVModuleV3';
 import {ModuleBE_CollectionActions} from '../../modules/collection-actions/ModuleBE_CollectionActions.js';
+import {BackupDelta_DeletedMap, BackupDelta_NewerMap, DeltaBackupRewriter} from './backup-delta.js';
 
 export interface OnModuleCleanupV2 {
 	__onCleanupInvokedV2: () => Promise<void>;
@@ -184,11 +185,12 @@ export class ModuleBE_BackupDocDB_Class
 		return `backup/${timeFormat}`;
 	};
 
-	initiateBackup = async (force = false, pathInBucket: string = this.getDefaultPath()) => {
+	initiateBackup = async (force = false, pathInBucket?: string, delta = false) => {
 		const nowMs = currentTimeMillis();
-		const backupPath = `${pathInBucket}/firestore-backup.csv`;
-		const metadataPath = `${pathInBucket}/metadata.json`;
-		const configPath = `${pathInBucket}/firebase-backup.json`;
+		const resolvedPath = pathInBucket ?? this.getDefaultPath();
+		const backupPath = `${resolvedPath}/firestore-backup.csv`;
+		const metadataPath = `${resolvedPath}/metadata.json`;
+		const configPath = `${resolvedPath}/firebase-backup.json`;
 
 		const query: FirestoreQuery<DB_BackupDoc> = {
 			where: {},
@@ -236,21 +238,18 @@ export class ModuleBE_BackupDocDB_Class
 			throw new ApiException(404, 'No modules to backup');
 
 		try {
-			this.logDebug('Creating backup file...');
+			this.logDebug(delta ? 'Creating delta backup file...' : 'Creating backup file...');
 			const file = await bucket.getFile(backupPath);
-			const reader = new DBModuleReader(modules);
-			const writer = file.createWriteStream({gzip: true});
-			const formatter = CSVModuleV3.provideFormatter();
-			await new Promise<void>((resolve, reject) => {
-				reader
-					.pipe(formatter)
-					.pipe(writer)
-					.on('close', () => {
-						metadata = {...reader.getMetadata(), timestamp: nowMs};
-						resolve();
-					})
-					.on('error', err => reject(err));
-			});
+			if (delta) {
+				try {
+					metadata = await this.writeDeltaBackup(file, modules, nowMs);
+				} catch (e: any) {
+					this.logWarning('Delta backup failed — falling back to full scan', e);
+					metadata = await this.writeFullBackup(file, modules, nowMs);
+				}
+			} else {
+				metadata = await this.writeFullBackup(file, modules, nowMs);
+			}
 
 			this.logDebug('Backup file created');
 			this.logDebug('Backing up config db');
@@ -307,6 +306,72 @@ export class ModuleBE_BackupDocDB_Class
 		}
 
 		return {pathToBackup: backupPath, backupId: dbBackup._id};
+	};
+
+	private writeFullBackup = async (file: { createWriteStream: (opts: { gzip: boolean }) => NodeJS.WritableStream }, modules: DBModules[], nowMs: number): Promise<BackupMetaData> => {
+		const reader = new DBModuleReader(modules);
+		await this.pipeBackupCsv(reader, file);
+		return {...reader.getMetadata(), timestamp: nowMs};
+	};
+
+	private writeDeltaBackup = async (file: { createWriteStream: (opts: { gzip: boolean }) => NodeJS.WritableStream }, modules: DBModules[], nowMs: number): Promise<BackupMetaData> => {
+		const {backupInfo} = await this.fetchLatestBackupDoc();
+		const watermark = backupInfo.metadata?.timestamp;
+		if (!watermark)
+			throw new BadImplementationException('Latest backup has no metadata.timestamp — cannot delta.');
+
+		this.logInfoBold(`Delta backup from watermark ${watermark} (backup ${backupInfo._id})`);
+		const {newer, deleted, versions} = await this.collectBackupDelta(modules, watermark);
+		const oldTotal = (backupInfo.metadata?.collectionsData ?? []).reduce((sum, collection) => sum + collection.numOfDocs, 0);
+		const lastStream = await this.createBackupReadStream(backupInfo);
+		const rewriter = new DeltaBackupRewriter(
+			new Set(modules.map(module => module.dbDef.dbKey)),
+			newer,
+			deleted,
+			versions,
+			oldTotal,
+		);
+		await this.pipeBackupCsv(lastStream.pipe(rewriter), file);
+		return {...rewriter.getMetadata(), timestamp: nowMs};
+	};
+
+	private pipeBackupCsv = async (source: Readable, file: { createWriteStream: (opts: { gzip: boolean }) => NodeJS.WritableStream }) => {
+		const writer = file.createWriteStream({gzip: true});
+		const formatter = CSVModuleV3.provideFormatter();
+		await new Promise<void>((resolve, reject) => {
+			source
+				.pipe(formatter)
+				.pipe(writer)
+				.on('close', () => resolve())
+				.on('error', err => reject(err));
+		});
+	};
+
+	/** Docs updated/created and tombstones after the last backup timestamp only. */
+	private collectBackupDelta = async (modules: DBModules[], watermark: number): Promise<{
+		newer: BackupDelta_NewerMap,
+		deleted: BackupDelta_DeletedMap,
+		versions: { [dbKey: string]: string },
+	}> => {
+		const deletedCollection = ModuleBE_Firebase.createAdminSession().getFirestoreV3().getCollection(DBDef_DeletedDoc);
+		const newer: BackupDelta_NewerMap = {};
+		const deleted: BackupDelta_DeletedMap = {};
+		const versions: { [dbKey: string]: string } = {};
+		for (const module of modules)
+			versions[module.dbDef.dbKey] = module.dbDef.versions[0];
+
+		await Promise.all(modules.map(async module => {
+			const dbKey = module.dbDef.dbKey;
+			const items = await module.query.unManipulatedQuery({where: {__updated: {$gt: watermark}}});
+			newer[dbKey] = new Map(items.map(item => [item._id, item]));
+
+			const tombstones = await deletedCollection.query.custom({
+				where: {__collectionName: dbKey, __updated: {$gt: watermark}},
+			});
+			deleted[dbKey] = new Set(tombstones.map(item => item.__docId));
+		}));
+
+		return {newer, deleted, versions};
 	};
 
 	createBackupReadStream = async (backupInfo: FetchBackupDoc): Promise<Readable> => {

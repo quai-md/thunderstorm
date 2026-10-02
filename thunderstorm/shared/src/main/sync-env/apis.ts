@@ -41,6 +41,24 @@ export type Response_GetLatestBackupDelta = {
 export const Const_SyncEnv_SourceProd = 'prod';
 export const Const_SyncEnv_ChunkSize = 500;
 
+export type Request_CreateBackup = {
+	/** When true (SyncEnv default), rewrite the last snapshot with docs changed since its timestamp. */
+	delta?: boolean
+}
+
+export const resolveDeltaQueryFlag = (value: boolean | string | undefined, defaultValue: boolean): boolean => {
+	if (value === undefined)
+		return defaultValue;
+
+	if (value === true || value === 'true')
+		return true;
+
+	if (value === false || value === 'false')
+		return false;
+
+	return defaultValue;
+};
+
 /** Local-only trigger: change-tracked sync from the source env's latest backup, applying source deletions. */
 export type Request_SyncLatestFromEnv = {
 	env: string
@@ -70,7 +88,7 @@ export type ApiStruct_SyncEnv = {
 		getLatestBackupDelta: BodyApi<Response_GetLatestBackupDelta, Request_GetLatestBackupDelta>
 		syncLatestFromEnv: BodyApi<Response_SyncFromEnv, Request_SyncLatestFromEnv>
 		getSyncableCollections: QueryApi<Response_GetSyncableCollections>
-		createBackup: QueryApi<{ pathToBackup: string } | undefined>,
+		createBackup: QueryApi<{ pathToBackup: string } | undefined, Request_CreateBackup>
 		fetchBackupMetadata: QueryApi<Response_FetchBackupMetadata, Request_GetMetadata>,
 		syncFirebaseFromBackup: QueryApi<any, Request_FetchFirebaseBackup>
 	}
