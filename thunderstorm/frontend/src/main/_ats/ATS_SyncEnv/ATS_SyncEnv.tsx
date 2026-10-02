@@ -175,7 +175,7 @@ export class ATS_SyncEnvironment
 	private createNewBackup = async () => {
 		return genericNotificationAction(async () => {
 			this.setState({backingUpInProgress: true}, async () => {
-				const toRet = await ModuleFE_SyncEnvV2.vv1.createBackup({delta: !this.state.fullBackup}).executeSync();
+				const toRet = await ModuleFE_SyncEnvV2.vv1.createBackup({delta: this.state.fullBackup ? 'false' : 'true'}).executeSync();
 				this.setState({backingUpInProgress: false});
 				return toRet;
 			});

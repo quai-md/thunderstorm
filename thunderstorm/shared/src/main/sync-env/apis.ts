@@ -42,8 +42,8 @@ export const Const_SyncEnv_SourceProd = 'prod';
 export const Const_SyncEnv_ChunkSize = 500;
 
 export type Request_CreateBackup = {
-	/** When true (SyncEnv default), rewrite the last snapshot with docs changed since its timestamp. */
-	delta?: boolean
+	/** Query flag: `'true'` rewrites the last snapshot from docs changed since its timestamp. */
+	delta?: string
 }
 
 export const resolveDeltaQueryFlag = (value: boolean | string | undefined, defaultValue: boolean): boolean => {
