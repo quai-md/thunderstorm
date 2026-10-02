@@ -246,7 +246,7 @@ class ModuleBE_SyncEnv_Class
 			selectedModules,
 		});
 		const backupTimestamp = backupInfo.metadata?.timestamp ?? currentTimeMillis();
-		const localNewer = await this.collectLocalNewer(selectedModules, watermark);
+		const localDivergence = await this.collectLocalDivergence(selectedModules, watermark);
 
 		const stream = await ModuleBE_BackupDocDB.createBackupReadStream(backupInfo);
 		const summary = await this.applyBackupStreamDelta(stream, {
@@ -255,7 +255,9 @@ class ModuleBE_SyncEnv_Class
 			chunkSize: body.chunkSize ?? Const_SyncEnv_ChunkSize,
 			deleteMissing: body.deleteMissing,
 			deletedDocs,
-			localNewer,
+			localNewer: localDivergence.force,
+			leftoverUnseen: localDivergence.leftover,
+			localDeleted: localDivergence.deleted,
 		});
 
 		await this.setEnvSyncIndicator(body.env, {backupTimestamp, syncTimestamp: currentTimeMillis()});
@@ -274,10 +276,22 @@ class ModuleBE_SyncEnv_Class
 		}
 	};
 
-	private collectLocalNewer = async (selectedModules: string[], watermark: number): Promise<SyncEnv_LocalNewerMap> => {
+	/**
+	 * Local edits + local deletes after the watermark. Force-set is the union (take the
+	 * backup row if it appears). Leftover is still-existing local-newer only — those
+	 * missing from the backup were added here and must be deleted. Local tombstones
+	 * missing from the backup stay deleted.
+	 */
+	private collectLocalDivergence = async (selectedModules: string[], watermark: number): Promise<{
+		force: SyncEnv_LocalNewerMap,
+		leftover: SyncEnv_LocalNewerMap,
+		deleted: SyncEnv_LocalNewerMap,
+	}> => {
 		const modules = arrayToMap(RuntimeModules()
 			.filter((module: DBModuleType) => !(!module || !module.dbDef)), module => module.dbDef!.dbKey);
-		const localNewer: SyncEnv_LocalNewerMap = {};
+		const leftover: SyncEnv_LocalNewerMap = {};
+		const deleted: SyncEnv_LocalNewerMap = {};
+		const force: SyncEnv_LocalNewerMap = {};
 
 		await Promise.all(selectedModules.map(async dbKey => {
 			const module = modules[dbKey] as ModuleBE_BaseDB<any> | undefined;
@@ -285,10 +299,15 @@ class ModuleBE_SyncEnv_Class
 				throw new BadImplementationException(`No DB module for syncable collection '${dbKey}'.`);
 
 			const items = await module.query.custom({where: {__updated: {$gt: watermark}}});
-			localNewer[dbKey] = new Set(items.map(item => item._id));
+			leftover[dbKey] = new Set(items.map(item => item._id));
+
+			const tombstones = await ModuleBE_SyncManager.queryDeleted(dbKey, {where: {__updated: {$gt: watermark}}});
+			deleted[dbKey] = new Set(tombstones.map(item => item.__docId));
+
+			force[dbKey] = new Set([...leftover[dbKey], ...deleted[dbKey]]);
 		}));
 
-		return localNewer;
+		return {force, leftover, deleted};
 	};
 
 	/** Calls the source env's {@link getLatestBackupDelta} using the configured per-env url + session headers. */
@@ -395,10 +414,10 @@ class ModuleBE_SyncEnv_Class
 
 	/**
 	 * Reusable change-tracked apply engine. Streams a backup, upserts docs whose `__updated`
-	 * exceeds the watermark (or whose id is in `localNewer` — force-revert), deletes unseen
-	 * local-newer ids, and (when `deleteMissing` + `deletedDocs` are provided) removes
-	 * source-deleted docs locally. The caller owns watermark persistence so a partial failure
-	 * never advances the watermark.
+	 * exceeds the watermark (or whose id is in `localNewer` — local edit / local delete),
+	 * drops restored `__deleted__docs` tombstones, deletes leftover local-newer ids missing
+	 * from the backup, and (when `deleteMissing` + `deletedDocs` are provided) removes
+	 * source-deleted docs locally.
 	 */
 	applyBackupStreamDelta = async (stream: Readable, options: {
 		selectedModules: string[],
@@ -407,15 +426,20 @@ class ModuleBE_SyncEnv_Class
 		deleteMissing?: boolean,
 		deletedDocs?: SyncEnv_DeletedDocRef[],
 		localNewer?: SyncEnv_LocalNewerMap,
+		leftoverUnseen?: SyncEnv_LocalNewerMap,
+		localDeleted?: SyncEnv_LocalNewerMap,
 	}): Promise<SyncEnvDeltaSummary> => {
 		const summaryBuilder = new SyncEnvDeltaSummaryBuilder(options.watermark);
-		const writer = new CollectionDeltaWriter(options.chunkSize, summaryBuilder, options.selectedModules, options.localNewer);
+		const writer = new CollectionDeltaWriter(options.chunkSize, summaryBuilder, options.selectedModules, options.localNewer, options.leftoverUnseen);
 		await new Promise<void>((resolve, reject) => {
 			stream
 				.pipe(writer)
 				.on('finish', () => resolve())
 				.on('error', reject);
 		});
+
+		if (options.localDeleted)
+			await this.clearRestoredTombstones(options.localDeleted, writer);
 
 		if (options.localNewer) {
 			const unseen = writer.unseenLocalNewer();
@@ -427,6 +451,19 @@ class ModuleBE_SyncEnv_Class
 			await this.applyDeletes(options.deletedDocs, options.selectedModules, options.chunkSize, summaryBuilder);
 
 		return summaryBuilder.summary;
+	};
+
+	/** Drop local `__deleted__docs` rows we just restored from the backup, so FE sync does not delete them again. */
+	private clearRestoredTombstones = async (localDeleted: SyncEnv_LocalNewerMap, writer: CollectionDeltaWriter) => {
+		await Promise.all(Object.keys(localDeleted).map(async dbKey => {
+			const restoredIds = [...localDeleted[dbKey]].filter(id => writer.wasSeen(dbKey, id));
+			if (!restoredIds.length)
+				return;
+
+			await ModuleBE_SyncManager.collection.delete.query({
+				where: {__collectionName: dbKey, __docId: {$in: restoredIds}},
+			});
+		}));
 	};
 
 	/** Batch-deletes source tombstones locally, scoped to the selected modules, recording each in the summary. */
@@ -598,12 +635,12 @@ class CollectionDeltaWriter
 	private batchWriter: firestore.WriteBatch;
 	private modules;
 
-	constructor(paginationSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder, selectedModules: string[], localNewer?: SyncEnv_LocalNewerMap) {
+	constructor(paginationSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder, selectedModules: string[], localNewer?: SyncEnv_LocalNewerMap, leftoverUnseen?: SyncEnv_LocalNewerMap) {
 		super({objectMode: true});
 		this.paginationSize = paginationSize;
 		this.summaryBuilder = summaryBuilder;
 		this.allowedDbKeys = new Set(selectedModules);
-		this.localNewer = localNewer ? new SyncEnvLocalNewerTracker(localNewer) : undefined;
+		this.localNewer = localNewer ? new SyncEnvLocalNewerTracker(localNewer, leftoverUnseen) : undefined;
 		const firebaseSessionAdmin = ModuleBE_Firebase.createAdminSession();
 		this.firestore = firebaseSessionAdmin.getFirestoreV3().firestore;
 		this.batchWriter = this.firestore.batch();
@@ -612,6 +649,8 @@ class CollectionDeltaWriter
 	}
 
 	unseenLocalNewer = () => this.localNewer?.unseen() ?? [];
+
+	wasSeen = (dbKey: string, id: string) => this.localNewer?.wasSeen(dbKey, id) ?? false;
 
 	async _write(chunk: any, encoding: string, callback: (error?: Error | null) => void) {
 		try {

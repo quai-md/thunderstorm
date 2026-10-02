@@ -79,4 +79,17 @@ describe('SyncEnv - local-newer tracker', () => {
 			{__collectionName: 'tags', __docId: 'gone'},
 		]);
 	});
+
+	it('force-restores local deletes seen in the backup without leftover-deleting them', () => {
+		const force = {vars: new Set(['edited', 'locally-deleted'])};
+		const leftover = {vars: new Set(['edited'])};
+		const tracker = new SyncEnvLocalNewerTracker(force, leftover);
+
+		expect(tracker.isLocalNewer('vars', 'locally-deleted')).to.equal(true);
+		tracker.markSeen('vars', 'locally-deleted');
+		tracker.markSeen('vars', 'edited');
+
+		expect(tracker.wasSeen('vars', 'locally-deleted')).to.equal(true);
+		expect(tracker.unseen()).to.deep.equal([]);
+	});
 });

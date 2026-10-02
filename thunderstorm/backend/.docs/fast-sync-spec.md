@@ -62,14 +62,14 @@ after success:  watermark ← this backup's timestamp
 
 ```
 1. Read the watermark for this source env      (none → full import from 0)
-2. Collect local docs with __updated > watermark  (local-newer map)
+2. Collect local docs with __updated > watermark, plus local `__deleted__docs` after the watermark
 3. Ask the source for its latest backup + tombstones-since-watermark
 4. Stream the backup:
      for each row:
-       if id is in the local-newer map → force-upsert (take the backup row) and mark seen
+       if id is locally edited or locally deleted → force-upsert (take the backup row) and mark seen
        else if row.__updated > watermark → upsert
        else → skip
-5. Delete local-newer ids that never appeared in the backup
+5. Drop restored local tombstones; delete still-existing local-newer ids that never appeared in the backup
 6. If "delete missing": apply the source tombstones locally
 7. On full success: advance the watermark to this backup's timestamp
 ```

@@ -43,26 +43,35 @@ export class SyncEnvDeltaSummaryBuilder {
 export type SyncEnv_LocalNewerMap = { [dbKey: string]: Set<string> };
 
 /**
- * Tracks local-newer ids through one backup stream: force-upsert those that appear
- * in the backup, delete the rest after the stream (this env added them).
+ * Tracks locally diverged ids through one backup stream.
+ * `force` ids are taken from the backup even when stale (edits + local deletes).
+ * `leftover` (defaults to `force`) is what gets deleted after the stream if never seen
+ * — pass only still-existing local-newer ids so already-deleted rows are not re-deleted.
  */
 export class SyncEnvLocalNewerTracker {
-	private readonly localNewer: SyncEnv_LocalNewerMap;
+	private readonly force: SyncEnv_LocalNewerMap;
 	private readonly remaining: SyncEnv_LocalNewerMap;
+	private readonly seenIds: SyncEnv_LocalNewerMap = {};
 
-	constructor(localNewer: SyncEnv_LocalNewerMap) {
-		this.localNewer = localNewer;
+	constructor(force: SyncEnv_LocalNewerMap, leftover?: SyncEnv_LocalNewerMap) {
+		this.force = force;
 		this.remaining = {};
-		for (const dbKey of Object.keys(localNewer))
-			this.remaining[dbKey] = new Set(localNewer[dbKey]);
+		const seed = leftover ?? force;
+		for (const dbKey of Object.keys(seed))
+			this.remaining[dbKey] = new Set(seed[dbKey]);
 	}
 
 	isLocalNewer(dbKey: string, id: string): boolean {
-		return this.localNewer[dbKey]?.has(id) ?? false;
+		return this.force[dbKey]?.has(id) ?? false;
 	}
 
 	markSeen(dbKey: string, id: string): void {
+		(this.seenIds[dbKey] ??= new Set()).add(id);
 		this.remaining[dbKey]?.delete(id);
+	}
+
+	wasSeen(dbKey: string, id: string): boolean {
+		return this.seenIds[dbKey]?.has(id) ?? false;
 	}
 
 	unseen(): SyncEnv_DeletedDocRef[] {
