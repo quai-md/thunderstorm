@@ -51,7 +51,7 @@
     "moment": "?",
     "react": "?",
     "react-dom": "?",
-    "react-router-dom": "?"
+    "react-router": "?"
   },
   "devDependencies": {
     "@types/react": "?",

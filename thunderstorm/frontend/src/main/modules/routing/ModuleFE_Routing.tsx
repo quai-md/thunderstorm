@@ -46,7 +46,7 @@ import * as React from 'react';
 import {defaultLinkNode, defaultNavLinkNode, defaultRouteNode, RoutePath} from './route.js';
 import {ModuleFE_RoutingV2} from './ModuleFE_RoutingV2.js';
 import {QueryParams} from '@nu-art/thunderstorm-shared';
-import {Navigate, Routes} from 'react-router-dom';
+import {Navigate, Routes} from 'react-router';
 
 
 /**

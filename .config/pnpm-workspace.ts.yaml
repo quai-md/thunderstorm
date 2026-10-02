@@ -15,6 +15,7 @@ packages:
   - ts-workspace
   - ts-pdf
   - permissions
+  - prompting
   - ts-short-url
   - ts-dependency-viewer
   - push-pub-sub

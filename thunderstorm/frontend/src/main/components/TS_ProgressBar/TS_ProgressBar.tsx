@@ -1,4 +1,4 @@
-import {BadImplementationException} from '@nu-art/ts-common';
+import {clamp} from '@nu-art/ts-common';
 import * as React from 'react';
 import {ComponentSync} from '../../core/ComponentSync.js';
 import './TS_ProgressBar.scss';
@@ -27,12 +27,8 @@ export class TS_ProgressBar
 	};
 
 	protected deriveStateFromProps(nextProps: Props, state: State) {
-		nextProps.ratios.forEach(ratio => {
-			if (ratio < 0 || ratio > 1)
-				throw new BadImplementationException('Ratio passed must be normalized to 0 < ratio < 1');
-		});
-
-		state.percentages = nextProps.ratios.map(ratio => Math.floor(ratio * 100));
+		const ratios = nextProps.ratios.map(ratio => clamp(0, ratio, 1));
+		state.percentages = ratios.map(ratio => Math.floor(ratio * 100));
 		return state;
 	}
 
@@ -70,7 +66,7 @@ export class TS_ProgressBar
 				{this.state.percentages.map((percentage, i) => {
 					const strokeDashOffset = strokeDashArray - (strokeDashArray * this.props.ratios[i]);
 					return <circle key={i} cx="50" cy="50" r={radius} className={`ts-progress-bar__radial-bar__bar-child-${i}`} strokeDasharray={strokeDashArray}
-												 strokeDashoffset={strokeDashOffset}/>;
+					               strokeDashoffset={strokeDashOffset}/>;
 				})}
 			</svg>
 		</div>;

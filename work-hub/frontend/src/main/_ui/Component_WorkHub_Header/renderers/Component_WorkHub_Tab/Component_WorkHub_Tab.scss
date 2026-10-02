@@ -1,4 +1,6 @@
 .c__work-hub-tab {
+  $edit-mode-amber: #F59E0B;
+
   background: #fff;
   padding: 4px 4px;
   border-radius: 6px;
@@ -22,5 +24,13 @@
 
   &.selected {
     border-color: #0000ff;
+  }
+
+  &[data-edit-mode="true"] {
+    border-color: $edit-mode-amber;
+
+    .c__work-hub-tab__tag {
+      background: $edit-mode-amber;
+    }
   }
 }

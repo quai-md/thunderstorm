@@ -9,6 +9,7 @@ export type ModuleFE_WorkHub_TabActions = {
 	getSelected: () => WorkHubTab | undefined;
 	updateArgs: (tabId: string, args: any) => void;
 	removeFromGroup: (tabId: string) => void;
+	updateLabel: (tabId: string, label: string) => void;
 }
 
 export type ModuleFE_WorkHub_GroupActions = {

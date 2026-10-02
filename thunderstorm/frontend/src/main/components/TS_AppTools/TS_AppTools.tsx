@@ -27,7 +27,7 @@ import {TS_ErrorBoundary} from '../TS_ErrorBoundary/index.js';
 import {TS_Route} from '../../modules/routing/types.js';
 import {TS_NavLink} from '../../modules/routing/ModuleFE_RoutingV2.js';
 import {md5, sortArray, ThisShouldNotHappenException, TypedMap} from '@nu-art/ts-common';
-import {Outlet} from 'react-router-dom';
+import {Outlet} from 'react-router';
 import {TS_AppTools_Default} from './TS_AppTools_Default.js';
 import {AppToolsScreen} from './types.js';
 import {TS_Icons} from '@nu-art/ts-styles';

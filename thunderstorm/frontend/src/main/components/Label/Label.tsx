@@ -3,6 +3,7 @@ import {ComponentSync} from '../../core/ComponentSync.js';
 import {_className} from '../../utils/tools.js';
 import './Label.scss';
 import {OnWindowResized} from '../../modules/ModuleFE_Window.js';
+import {Debounce} from '@nu-art/ts-common';
 
 type Props = React.PropsWithChildren<{
 	tooltip?: React.ReactNode; //The content that will appear in the tooltip
@@ -24,14 +25,14 @@ export class Label
 	implements OnWindowResized {
 
 	private readonly labelRef = React.createRef<HTMLDivElement>();
-	private readonly activeTruncationClass = 'truncate-active';
 	private readonly activeTooltipClass = 'tooltip-active';
 	private readonly invertTooltipClass = 'invert-tooltip';
+	private readonly debouncer = new Debounce(() => this.checkOverflow(), 50, 150);
 
 	// ######################## Life Cycle ########################
 
 	__onWindowResized() {
-		this.checkOverflow();
+		this.debouncer.trigger();
 	}
 
 	protected deriveStateFromProps(nextProps: Props, state: State): State {
@@ -47,39 +48,37 @@ export class Label
 	}
 
 	componentDidMount() {
-		this.checkOverflow();
+		this.debouncer.trigger();
+		this.observer.attach();
 	}
 
 	componentDidUpdate() {
-		this.checkOverflow();
+		this.debouncer.trigger();
+	}
+
+	public componentWillUnmount() {
+		this.observer.detach();
 	}
 
 	// ######################## Logic ########################
 
-	private checkOverflow = () => {
+	private checkOverflow = (secondCheck: boolean = false) => {
 		const el = this.labelRef.current;
 		if (!el)
 			return;
 
-		const overflowing = el.scrollWidth > el.clientWidth;
-		//Not overflowing - make sure truncation and tooltip classes aren't applied
-		if (!overflowing) {
-			if (el.classList.contains(this.activeTruncationClass))
-				el.classList.remove(this.activeTruncationClass);
-
-			if (el.classList.contains(this.activeTooltipClass))
-				el.classList.remove(this.activeTooltipClass);
-
+		const contentEl = el.children[0] as HTMLDivElement;
+		if (!contentEl)
 			return;
-		}
-		//Overflowing
-		//Always apply truncation
-		if (!el.classList.contains(this.activeTruncationClass))
-			el.classList.add(this.activeTruncationClass);
 
-		//Apply tooltip if one is provided
-		if (!el.classList.contains(this.activeTooltipClass) && this.state.tooltip)
+		const contentOverflowing = contentEl.offsetWidth < contentEl.scrollWidth;
+		if (contentOverflowing) { //Currently truncated
 			el.classList.add(this.activeTooltipClass);
+		} else { //Currently not truncated
+			el.classList.remove(this.activeTooltipClass);
+			if (!secondCheck)
+				this.checkOverflow(true);
+		}
 	};
 
 	private checkTooltipDir = () => {
@@ -114,6 +113,18 @@ export class Label
 			onClick,
 			ref: this.labelRef,
 		};
+	};
+
+	private observer = {
+		observer: new ResizeObserver(() => this.checkOverflow()),
+		attach: () => {
+			const el = this.labelRef.current;
+			if (!el)
+				return;
+
+			this.observer.observer.observe(el);
+		},
+		detach: () => this.observer.observer.disconnect(),
 	};
 
 	// ######################## Render ########################

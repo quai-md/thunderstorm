@@ -238,7 +238,7 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 	};
 
 	public onEntriesUpdated = async (items: Proto['dbType'][], updateIDBLastSynced: boolean = true): Promise<void> => {
-		items = await this.upgradeInstances(items);
+		items = await this.upgradeInstances(items, true);
 		await this.IDB.syncIndexDb(items);
 		// @ts-ignore
 		this.cache.onEntriesUpdated(items);
@@ -252,12 +252,12 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 	};
 
 	public onEntryUpdated = async (item: Proto['dbType'], original: Proto['uiType'], updateIDBLastSynced: boolean = true): Promise<void> => {
-		item = (await this.upgradeInstances([item]))[0];
+		item = (await this.upgradeInstances([item], true))[0];
 		return this.onEntryUpdatedImpl(original._id ? EventType_Update : EventType_Create, item, updateIDBLastSynced);
 	};
 
 	protected onEntryPatched = async (item: Proto['dbType'], updateIDBLastSynced: boolean = true): Promise<void> => {
-		item = (await this.upgradeInstances([item]))[0];
+		item = (await this.upgradeInstances([item], true))[0];
 		return this.onEntryUpdatedImpl(EventType_Patch, item, updateIDBLastSynced);
 	};
 
@@ -304,7 +304,7 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 	};
 
 	protected onQueryReturned = async (toUpdate: Proto['dbType'][], toDelete: DB_Object[] = []): Promise<void> => {
-		toUpdate = await this.upgradeInstances(toUpdate);
+		toUpdate = await this.upgradeInstances(toUpdate, true);
 		await this.IDB.syncIndexDb(toUpdate, toDelete);
 		// @ts-ignore
 		this.cache.onEntriesUpdated(toUpdate);
@@ -517,7 +517,7 @@ export class MemCache<Proto extends DBProto<any>> {
 	};
 
 	unique = (_key?: Proto['uniqueParam']): Readonly<Proto['dbType']> | undefined => {
-		if (_key === undefined)
+		if (_key === undefined || _key === null)
 			return _key;
 
 		const _id = typeof _key === 'string' ? _key : (('_id' in (_key as {

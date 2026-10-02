@@ -19,7 +19,7 @@
  * limitations under the License.
  */
 
-import {BrowserRouter, MemoryRouter} from 'react-router-dom';
+import {BrowserRouter, MemoryRouter} from 'react-router';
 import {ThunderAppWrapperProps} from './types.js';
 
 

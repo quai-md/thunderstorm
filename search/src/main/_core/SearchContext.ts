@@ -196,6 +196,18 @@ export class SearchContext
 		get: <AddOn extends SearchAddOnDef<string, any, any, any>>(key: AddOn['key']): AddOn['valueType'] | undefined => {
 			return this.filterDictionary[key];
 		},
+		clear: <AddOn extends SearchAddOnDef<string, any, any, any>>(key: AddOn['key']): void => {
+			delete this.filterDictionary[key];
+			this.saveFilterDebounce?.trigger();
+			this.saveFilters();
+			//Re-calculate active addons and search items
+			this.setActiveAddOns();
+			this.setActiveSearchItems();
+			//Notify all listeners that filters have changed
+			this._filterChangeListeners.forEach(listener => listener.__onSearchFilterChanged());
+			//Trigger search
+			this.searchDebouncer.trigger();
+		}
 	};
 
 	public filterChangeListeners = {

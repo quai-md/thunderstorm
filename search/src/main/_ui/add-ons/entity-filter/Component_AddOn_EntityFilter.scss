@@ -2,6 +2,17 @@
   padding: 16px;
   flex-shrink: 0;
 
+  .ts-prop-renderer__label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-transform: uppercase;
+    font: {
+      size: 13px;
+      weight: 600;
+    }
+  }
+
   .search-add-on__entity-filter__item-list {
     width: 100%;
     flex-wrap: wrap;

@@ -364,3 +364,6 @@ export function deepFreeze<T>(object: T): T {
 	return Object.freeze(object);
 }
 
+export type OWCombine<T1 extends {}, T2 extends {}> = {
+	[K in keyof (Omit<T1, keyof T2> & T2)]: (Omit<T1, keyof T2> & T2)[K];
+};

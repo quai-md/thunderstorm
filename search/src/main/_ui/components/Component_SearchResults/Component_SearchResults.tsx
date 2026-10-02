@@ -1,18 +1,16 @@
-import * as React from 'react';
-import {ComponentSync, LL_V_L, VirtualizedList} from '@nu-art/thunderstorm-frontend';
+import {ComponentSync, LL_V_L} from '@nu-art/thunderstorm-frontend';
 import {SearchContext, SearchItem, SearchResult, SearchResultsRenderer} from '../../../_core/index.js';
 import './Component_SearchResults.scss';
-import {filterInstances, ResolvableContent} from '@nu-art/ts-common';
+import {TypedMap} from '@nu-art/ts-common';
+import {Virtuoso} from 'react-virtuoso';
 
 type Props = {
 	context: SearchContext;
-	itemHeight: number;
-	maxItemsOnScreen: number;
 };
 
 type State = {
 	searchResults?: SearchResult[];
-	maxHeight: number;
+	listHeight?: number;
 };
 
 export class Component_SearchResults
@@ -22,7 +20,7 @@ export class Component_SearchResults
 	//######################### Life Cycle #########################
 
 	protected deriveStateFromProps(nextProps: Props, state: State) {
-		state.maxHeight = nextProps.maxItemsOnScreen * nextProps.itemHeight;
+		state.searchResults ??= nextProps.context.getSearchResults();
 		return state;
 	}
 
@@ -40,39 +38,30 @@ export class Component_SearchResults
 
 	//######################### Render #########################
 
-	private getList = (): ResolvableContent<React.ReactNode>[] => {
-		if (!this.state.searchResults?.length)
-			return [];
-
-		const activeSearchItemMap = this.props.context.getActiveSearchItems().reduce((map, item) => {
-			map[item.module.dbDef.dbKey] = item;
+	private getSearchItemMap = () => {
+		return this.props.context.getActiveSearchItems().reduce((map, searchItem) => {
+			map[searchItem.module.dbDef.dbKey] = searchItem;
 			return map;
-		}, {} as { [key: string]: SearchItem<any, any> });
-
-		return filterInstances(this.state.searchResults.map(result => {
-			const item = activeSearchItemMap[result.dbKey];
-			if (!item)
-				return;
-
-			return (style?: React.CSSProperties) => item.resultRenderer(result, style);
-		}));
+		}, {} as TypedMap<SearchItem<any, any>>);
 	};
 
 	//######################### Render #########################
 
 	render() {
-		if (!this.state.searchResults?.length)
+		const searchItemMap = this.getSearchItemMap();
+		const results = this.state.searchResults?.filter(result => searchItemMap[result.dbKey]);
+		if (!results?.length)
 			return this.render_NoResults();
 
-		const list = this.getList();
-		const height = Math.min(list.length * this.props.itemHeight, this.state.maxHeight);
-		return <VirtualizedList
+		return <Virtuoso
 			className={'c__search-results'}
-			width={0}
-			height={height}
-			itemHeight={this.props.itemHeight}
-			listToRender={list}
-			omitWrapper
+			data={results}
+			style={{height: 0}}
+			itemContent={(_, result) => searchItemMap[result.dbKey].resultRenderer(result)}
+			totalListHeightChanged={listHeight => {
+				if (listHeight > 0 && this.state.listHeight !== listHeight)
+					this.setState({listHeight});
+			}}
 		/>;
 	}
 

@@ -36,7 +36,7 @@ export class TS_ToolTip
 			ModuleFE_MouseInteractivity.hide(mouseInteractivity_ToolTip);
 	};
 
-	__onToolTipDisplay = (model?: Model_ToolTip) => {
+	__onToolTipDisplay = (model?: Model_ToolTip, immediate?: boolean) => {
 		//Clear timeout if one exists
 		if (this.timeout)
 			clearTimeout(this.timeout);
@@ -47,7 +47,7 @@ export class TS_ToolTip
 
 		//Model is not given
 		const allowContentHover = this.state.model?.contentHoverDelay;
-		if (allowContentHover)
+		if (allowContentHover && !immediate)
 			this.timeout = setTimeout(() => {
 				this.setState({model: undefined, open: false});
 			}, allowContentHover);

@@ -33,8 +33,10 @@ const onTabRightClick = (e: MouseEvent<HTMLDivElement>, tab: WorkHubTab) => {
 
 export const Component_WorkHub_Tab: FC<Props> = (props) => {
 	const className = _className('c__work-hub-tab', props.selected && 'selected');
+	const editMode = props.tab.renderArgs?.editMode === true;
 	return <LL_H_C
 		className={className}
+		data-edit-mode={editMode ? 'true' : undefined}
 		onMouseUp={e => onTabMouseDown(e, props.tab.id)}
 		onClick={e => onTabClick(e, props.tab.id)}
 		onContextMenu={e => onTabRightClick(e, props.tab)}

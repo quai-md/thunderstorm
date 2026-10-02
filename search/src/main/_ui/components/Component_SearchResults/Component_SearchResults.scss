@@ -1,5 +1,6 @@
 .c__search-results {
-  width: 100% !important;
+  width: 100%;
+  flex: 1 1 0;
 
   &.no-results {
     font: {

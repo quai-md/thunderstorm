@@ -1,6 +1,6 @@
 import {ComponentClass, FunctionComponent} from 'react';
 // @ts-ignore - unstable_HistoryRouter may not be in types but is available in React Router v6.4+
-import {BrowserRouter, Navigate, NavLink, NavLinkProps, Route, Routes} from 'react-router-dom';
+import {BrowserRouter, Navigate, NavLink, NavLinkProps, Route, Routes} from 'react-router';
 // Removed createBrowserHistory - BrowserRouter doesn't use it, we use window.history directly
 import {TS_Route} from './types.js';
 import {_keys, BadImplementationException, composeQueryParams, composeUrl, exists, Module, removeItemFromArray} from '@nu-art/ts-common';

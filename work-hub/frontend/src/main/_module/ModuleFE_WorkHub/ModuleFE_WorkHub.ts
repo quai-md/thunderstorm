@@ -146,6 +146,14 @@ class ModuleFE_WorkHub_Class
 			this.clearEmptyGroups();
 			this.storage_tabs.set([...this._tabs]);
 			dispatch_OnWorkHubTabsUpdated.dispatchUI();
+		},
+		updateLabel: (tabId: string, label: string) => {
+			const tab = this._tabs.find(tab => isWorkHubTab(tab) && tab.id === tabId) as WorkHubTab | undefined;
+			if (!tab || tab.label === label)
+				return;
+
+			tab.label = label;
+			dispatch_OnWorkHubTabsUpdated.dispatchUI();
 		}
 	};
 

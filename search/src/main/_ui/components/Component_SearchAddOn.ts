@@ -4,6 +4,7 @@ import {SearchAddOn, SearchAddOnDef, SearchAddOnRenderer, SearchContext} from '.
 
 type Props = {
 	context: SearchContext;
+	onCleared?: VoidFunction;
 };
 
 type State<AddOnDef extends SearchAddOnDef<string, any, any, any>> = {
@@ -32,7 +33,7 @@ export abstract class Component_SearchAddOn<
 
 	componentDidMount() {
 		this.props.context.filterChangeListeners.register(this);
-		this.setState({value: this.props.context.filter.get(this.addOn.key)})
+		this.setState({value: this.props.context.filter.get(this.addOn.key)});
 	}
 
 	componentWillUnmount() {
@@ -43,5 +44,10 @@ export abstract class Component_SearchAddOn<
 
 	protected setValue = (val?: AddOnDef['valueType']) => {
 		this.props.context.filter.set(this.addOn.key, val);
+	};
+
+	protected clear = () => {
+		this.props.context.filter.clear(this.addOn.key);
+		this.props.onCleared?.();
 	};
 }

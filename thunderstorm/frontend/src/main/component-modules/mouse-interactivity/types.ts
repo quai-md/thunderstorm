@@ -40,5 +40,5 @@ export interface PopUpListener {
 }
 
 export interface ToolTipListener {
-	__onToolTipDisplay: (content?: Model_ToolTip) => void;
+	__onToolTipDisplay: (content?: Model_ToolTip, immediate?: boolean) => void;
 }
