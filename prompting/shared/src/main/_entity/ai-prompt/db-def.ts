@@ -1,11 +1,11 @@
-import {DBDef_V3, tsValidateString, tsValidateValue} from '@nu-art/ts-common';
-import {AIPromptTypes} from './consts.js';
+import {DBDef_V3, tsValidateString} from '@nu-art/ts-common';
 import {DBProto_AIPrompt} from './types.js';
+import {Validator_AIPromptType} from '../../_enum/ai-prompt-type/index.js';
 
 const Validator_ModifiableProps: DBProto_AIPrompt['modifiablePropsValidator'] = {
 	label: tsValidateString(),
 	content: tsValidateString(),
-	type: tsValidateValue(AIPromptTypes),
+	type: Validator_AIPromptType,
 };
 
 const Validator_GeneratedProps: DBProto_AIPrompt['generatedPropsValidator'] = {};
