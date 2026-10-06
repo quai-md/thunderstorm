@@ -11,6 +11,7 @@ import {
 import {apiWithBody, apiWithQuery} from '../../core/typed-api.js';
 import {Thunder} from '../../core/Thunder.js';
 import {genericNotificationAction} from '../../components/TS_Notifications/genericNotificationAction.js';
+import {ModuleFE_Toaster} from '../../component-modules/ModuleFE_Toaster.js';
 import {ModuleFE_SyncManager} from '../sync-manager/ModuleFE_SyncManager.js';
 
 
@@ -61,11 +62,17 @@ class ModuleFE_SyncEnvV2_Class
 
 	runOneClickFromProd = async () => {
 		await genericNotificationAction(async () => {
-			const collections = await this.fetchSyncableCollections();
-			await this.syncFromProd({
-				selectedModules: collections,
-				deleteMissing: true,
-			});
+			try {
+				const collections = await this.fetchSyncableCollections();
+				await this.syncFromProd({
+					selectedModules: collections,
+					deleteMissing: true,
+				});
+				ModuleFE_Toaster.toastSuccess('Synced DB from Prod');
+			} catch (e: any) {
+				ModuleFE_Toaster.toastError(e?.message || 'Sync DB from Prod failed');
+				throw e;
+			}
 		}, 'Syncing DB from Prod');
 	};
 }
