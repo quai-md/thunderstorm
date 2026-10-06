@@ -12,6 +12,7 @@ import {
 	formatTimestamp,
 	LogLevel,
 	Minute,
+	MimeType_json,
 	Module,
 	PreDB,
 	RuntimeModules,
@@ -24,13 +25,12 @@ import {ModuleBE_Firebase} from '@nu-art/firebase-backend';
 import {_EmptyQuery, FirestoreQuery} from '@nu-art/firebase-shared';
 import {Readable} from 'stream';
 import {FirestoreCollectionV3} from '@nu-art/firebase-backend';
-import {ApiDef, BackupMetaData, DB_BackupDoc, DBDef_DeletedDoc, DBProto_BackupDoc, FetchBackupDoc, HttpMethod, QueryApi} from '@nu-art/thunderstorm-shared';
+import {ApiDef, BackupMetaData, DB_BackupDoc, DBDef_DeletedDoc, DBProto_BackupDoc, FetchBackupDoc, HeaderKey_ContentType, HttpMethod, QueryApi} from '@nu-art/thunderstorm-shared';
 import {addRoutes} from '../../modules/ModuleBE_APIs.js';
 import {ApiDef_BackupDoc, Request_BackupId, Response_BackupDocs} from '@nu-art/thunderstorm-shared/_entity/backup-doc/api-def';
 import {createQueryServerApi} from '../../core/typed-api.js';
 import {DBDef_BackupDoc} from '@nu-art/thunderstorm-shared/_entity/backup-doc/db-def';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
-import {MemKey_HttpRequestHeaders} from '../../modules/server/consts.js';
 import {AxiosHttpModule} from '../../index.js';
 import {CSVModuleV3} from '@nu-art/ts-common/modules/CSVModuleV3';
 import {ModuleBE_CollectionActions} from '../../modules/collection-actions/ModuleBE_CollectionActions.js';
@@ -155,6 +155,7 @@ export class ModuleBE_BackupDocDB_Class
 
 		return (await AxiosHttpModule
 			.createRequest(signedUrlDef)
+			.addHeaders({[HeaderKey_ContentType]: MimeType_json})
 			.setResponseType('stream')
 			.executeSync()) as Readable;
 	};
@@ -412,9 +413,8 @@ export class ModuleBE_BackupDocDB_Class
 
 	private fetchDocImpl = async (doc: DB_BackupDoc) => {
 		const bucket = await ModuleBE_Firebase.createAdminSession().getStorage().getMainBucket();
-		const contentType = MemKey_HttpRequestHeaders.get()['content-type'];
-		const firebaseDescriptor = await (await bucket.getFile(doc.firebasePath)).getReadSignedUrl(10 * Minute, contentType);
-		const firestoreDescriptor = await (await bucket.getFile(doc.backupPath)).getReadSignedUrl(10 * Minute, contentType);
+		const firebaseDescriptor = await (await bucket.getFile(doc.firebasePath)).getReadSignedUrl(10 * Minute, MimeType_json);
+		const firestoreDescriptor = await (await bucket.getFile(doc.backupPath)).getReadSignedUrl(10 * Minute, MimeType_json);
 
 		return {
 			backupInfo: {
