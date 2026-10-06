@@ -1,9 +1,16 @@
 import {DBProto_AIPrompt} from '@nu-art/prompting-shared';
-import {EditableDBItemV3, LL_H_C, LL_V_L, TS_Input, TS_PropRenderer} from '@nu-art/thunderstorm-frontend';
+import {EditableDBItemV3, LL_H_C, LL_V_L, TS_PropRenderer} from '@nu-art/thunderstorm-frontend';
 import './Editor_AIPrompt.scss';
 import {DropDown_AIPromptType} from '../../_enum/ai-prompt-type/ui-components.js';
 import {TS_TextAreaV2} from '@nu-art/thunderstorm-frontend/components/TS_V2_TextArea/TS_TextAreaV2';
 import {FC} from 'react';
+import {TS_InputV2} from '@nu-art/thunderstorm-frontend/components/TS_V2_Input/TS_InputV2';
+
+const Input = TS_InputV2.editable({
+	type: 'text',
+	trim: true,
+	saveEvent: ['blur'],
+});
 
 const TextArea = TS_TextAreaV2.editable({
 	saveEvent: ['blur'],
@@ -18,10 +25,9 @@ type Props = {
 
 const Render_Label: FC<Props> = (p) => {
 	return <TS_PropRenderer.Horizontal label={'Label'}>
-		<TS_Input
-			type={'text'}
-			value={p.editable.get('label')}
-			onBlur={val => p.editable.updateObj({label: val})}
+		<Input
+			editable={p.editable}
+			prop={'label'}
 			disabled={!p.editMode}
 		/>
 	</TS_PropRenderer.Horizontal>;
