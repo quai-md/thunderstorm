@@ -34,7 +34,8 @@
     "@nu-art/prompting-shared": "?",
     "@nu-art/thunderstorm-frontend": "?",
     "@nu-art/thunderstorm-shared": "?",
-    "@nu-art/ts-common": "?"
+    "@nu-art/ts-common": "?",
+    "react": "?"
   },
   "devDependencies": {
     "@types/react": "?",

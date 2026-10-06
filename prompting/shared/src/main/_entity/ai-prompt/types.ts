@@ -1,7 +1,7 @@
 import {DB_Object, DBProto, Proto_DB_Object, VersionsDeclaration} from '@nu-art/ts-common';
-import {AIPromptType} from './consts.js';
+import {AIPromptType} from '../../_enum/ai-prompt-type/index.js';
 
-type VersionTypes_AIPrompt = {'1.0.0': DB_AIPrompt}
+type VersionTypes_AIPrompt = { '1.0.0': DB_AIPrompt }
 type Versions = VersionsDeclaration<['1.0.0'], VersionTypes_AIPrompt>;
 type Dependencies = {}
 type UniqueKeys = '_id';
