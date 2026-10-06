@@ -1,0 +1,61 @@
+#dialog__sync-env-from-prod {
+	width: 640px;
+	max-height: 80vh;
+	background: white;
+	border: 2px solid black;
+
+	.dialog__sync-env-from-prod__header {
+		width: 100%;
+		height: 40px;
+		justify-content: space-between;
+		padding: 0 20px;
+
+		.dialog__sync-env-from-prod__header__title {
+			font-size: 20px;
+		}
+	}
+
+	.dialog__sync-env-from-prod__loading,
+	.dialog__sync-env-from-prod__error {
+		width: 100%;
+		padding: 16px 20px;
+	}
+
+	.dialog__sync-env-from-prod__list {
+		width: 100%;
+		height: 0;
+		flex-grow: 1;
+		overflow-y: overlay;
+		padding: 8px 20px;
+		gap: 8px;
+	}
+
+	.dialog__sync-env-from-prod__row {
+		width: 100%;
+		gap: 12px;
+		justify-content: space-between;
+
+		.dialog__sync-env-from-prod__row__name {
+			width: 0;
+			flex-grow: 1;
+		}
+
+		.dialog__sync-env-from-prod__row__status {
+			width: 80px;
+
+			&.status-done {
+				color: darkgreen;
+			}
+
+			&.status-failed {
+				color: red;
+			}
+		}
+	}
+
+	.dialog__sync-env-from-prod__footer {
+		width: 100%;
+		justify-content: flex-end;
+		padding: 12px 20px;
+	}
+}

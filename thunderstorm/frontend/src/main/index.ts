@@ -134,6 +134,7 @@ export * from './modules/component-loader/index.js';
 export * from './modules/ModuleFE_StorageCleaner.js';
 export * from './modules/sync-manager/ModuleFE_SyncManager.js';
 export * from './modules/sync-manager/ModuleFE_SyncManager_CSV.js';
+export * from './modules/sync-env/ModuleFE_SyncEnvV2.js';
 export * from './utils/tools.js';
 export * from './utils/types.js';
 

@@ -59,6 +59,10 @@ type State = {
 	metadata?: Response_FetchBackupMetadata;
 
 	cleanSync: boolean
+	delta: boolean
+	deleteMissing: boolean
+	forceFull: boolean
+	fullBackup: boolean
 }
 
 export class ATS_SyncEnvironment
@@ -79,6 +83,11 @@ export class ATS_SyncEnvironment
 		state.selectedChunkSize ??= StorageKey_ChunkSize.get(100);
 		state.selectedEnv ??= StorageKey_Env.get('prod');
 		state.backupId ??= StorageKey_BackupId.get();
+		state.cleanSync ??= false;
+		state.delta ??= false;
+		state.deleteMissing ??= false;
+		state.forceFull ??= false;
+		state.fullBackup ??= false;
 
 		//Add local module data
 		state.moduleList = this.getCollectionModuleList().reduce<TypedMap<ModuleMetadata>>((toRet, name) => {
@@ -136,6 +145,9 @@ export class ATS_SyncEnvironment
 					chunkSize: this.state.selectedChunkSize!,
 					selectedModules: Array.from(this.state.selectedModules),
 					cleanSync: this.state.cleanSync,
+					delta: this.state.delta,
+					deleteMissing: this.state.delta && this.state.deleteMissing,
+					forceFull: this.state.delta && this.state.forceFull,
 				}, 'selectedModules')).executeSync();
 			} catch (err: any) {
 				this.logError(err);
@@ -163,7 +175,7 @@ export class ATS_SyncEnvironment
 	private createNewBackup = async () => {
 		return genericNotificationAction(async () => {
 			this.setState({backingUpInProgress: true}, async () => {
-				const toRet = await ModuleFE_SyncEnvV2.vv1.createBackup({}).executeSync();
+				const toRet = await ModuleFE_SyncEnvV2.vv1.createBackup({delta: this.state.fullBackup ? 'false' : 'true'}).executeSync();
 				this.setState({backingUpInProgress: false});
 				return toRet;
 			});
@@ -299,6 +311,12 @@ export class ATS_SyncEnvironment
 		return <TS_PropRenderer.Vertical label={'Operations'}>
 			<LL_H_C className={'sync-env-page__operations'}>
 				<Button onClick={this.createNewBackup}>Trigger Backup</Button>
+				<TS_Checkbox
+					checked={this.state.fullBackup}
+					onCheck={(value) => {
+						this.setState({fullBackup: value});
+					}}
+				>Full Backup</TS_Checkbox>
 				<Button onClick={this.syncEnv} disabled={!this.canSync()}>Sync Environment</Button>
 				{Thunder.getInstance().getConfig().name?.toLowerCase() === this.state.selectedEnv && <Button
 					onClick={this.syncFirebase}
@@ -311,6 +329,26 @@ export class ATS_SyncEnvironment
 						this.setState({cleanSync: value});
 					}}
 				>Clean Sync</TS_Checkbox>
+				<TS_Checkbox
+					checked={this.state.delta}
+					onCheck={(value) => {
+						this.setState({delta: value});
+					}}
+				>Delta (change-tracked)</TS_Checkbox>
+				<TS_Checkbox
+					disabled={!this.state.delta}
+					checked={this.state.delta && this.state.deleteMissing}
+					onCheck={(value) => {
+						this.setState({deleteMissing: value});
+					}}
+				>Delete Missing</TS_Checkbox>
+				<TS_Checkbox
+					disabled={!this.state.delta}
+					checked={this.state.delta && this.state.forceFull}
+					onCheck={(value) => {
+						this.setState({forceFull: value});
+					}}
+				>Force Full</TS_Checkbox>
 			</LL_H_C>
 		</TS_PropRenderer.Vertical>;
 	};
