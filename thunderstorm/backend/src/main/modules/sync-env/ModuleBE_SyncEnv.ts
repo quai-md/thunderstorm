@@ -5,6 +5,7 @@ import {
 	currentTimeMillis,
 	Dispatcher,
 	Minute,
+	MimeType_json,
 	Module,
 	MUSTNeverHappenException,
 	RuntimeModules,
@@ -24,6 +25,7 @@ import {
 	DBModuleType,
 	FetchBackupDoc,
 	HeaderKey_Authorization,
+	HeaderKey_ContentType,
 	HttpMethod,
 	QueryApi,
 	Request_FetchFirebaseBackup,
@@ -535,6 +537,7 @@ class ModuleBE_SyncEnv_Class
 			};
 			const firebaseFile = await AxiosHttpModule
 				.createRequest(signedUrlDef)
+				.addHeaders({[HeaderKey_ContentType]: MimeType_json})
 				.executeSync();
 
 			this.logDebug('Setting the file in firebase database');
