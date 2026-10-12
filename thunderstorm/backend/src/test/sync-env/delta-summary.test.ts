@@ -1,5 +1,5 @@
 import {expect} from 'chai';
-import {SyncEnvDeltaSummaryBuilder, SyncEnvLocalNewerTracker} from '../../main/modules/sync-env/sync-env-delta.js';
+import {SyncEnvBackupRowIndex, SyncEnvDeltaSummaryBuilder, SyncEnvLocalNewerTracker} from '../../main/modules/sync-env/sync-env-delta.js';
 
 /**
  * Pure unit coverage for the watermark decision + per-dbKey accounting that drives the delta sync.
@@ -91,5 +91,41 @@ describe('SyncEnv - local-newer tracker', () => {
 
 		expect(tracker.wasSeen('vars', 'locally-deleted')).to.equal(true);
 		expect(tracker.unseen()).to.deep.equal([]);
+	});
+});
+
+describe('SyncEnv - backup row vs tombstone', () => {
+
+	const indexWith = (updated: number) => {
+		const index = new SyncEnvBackupRowIndex([{__collectionName: 'pathway', __docId: 'dental'}]);
+		index.note('pathway', 'dental', updated);
+		return index;
+	};
+
+	it('deletes an id that is not in the backup', () => {
+		const index = new SyncEnvBackupRowIndex([{__collectionName: 'pathway', __docId: 'gone', __updated: 200}]);
+		expect(index.shouldDelete({__collectionName: 'pathway', __docId: 'gone', __updated: 200})).to.equal(true);
+	});
+
+	it('ignores a backup row that is not in the tombstone list', () => {
+		const index = new SyncEnvBackupRowIndex([{__collectionName: 'pathway', __docId: 'dental', __updated: 50}]);
+		index.note('pathway', 'other', 1);
+		expect(index.shouldDelete({__collectionName: 'pathway', __docId: 'other', __updated: 1})).to.equal(true);
+	});
+
+	it('deletes when the tombstone is strictly newer than the backup row', () => {
+		expect(indexWith(100).shouldDelete({__collectionName: 'pathway', __docId: 'dental', __updated: 101})).to.equal(true);
+	});
+
+	it('keeps the backup row when the tombstone is older', () => {
+		expect(indexWith(200).shouldDelete({__collectionName: 'pathway', __docId: 'dental', __updated: 100})).to.equal(false);
+	});
+
+	it('keeps the backup row when the tombstone time equals the backup row', () => {
+		expect(indexWith(100).shouldDelete({__collectionName: 'pathway', __docId: 'dental', __updated: 100})).to.equal(false);
+	});
+
+	it('deletes when the source sent no tombstone time', () => {
+		expect(indexWith(100).shouldDelete({__collectionName: 'pathway', __docId: 'dental'})).to.equal(true);
 	});
 });

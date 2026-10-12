@@ -83,3 +83,37 @@ export class SyncEnvLocalNewerTracker {
 		return refs;
 	}
 }
+
+/**
+ * `__updated` for backup rows whose id is also in the source tombstone list.
+ * Rows that are not tombstoned are ignored, so the backup stream is not retained.
+ * A tombstone deletes only when it is strictly newer than that backup row, or the id is not in the backup.
+ */
+export class SyncEnvBackupRowIndex {
+	private readonly watched: { [dbKey: string]: Set<string> } = {};
+	private readonly updatedAt: { [dbKey: string]: { [id: string]: number } } = {};
+
+	constructor(deletedDocs: SyncEnv_DeletedDocRef[]) {
+		for (const ref of deletedDocs) {
+			(this.watched[ref.__collectionName] ??= new Set()).add(ref.__docId);
+		}
+	}
+
+	note(dbKey: string, id: string, updated: number): void {
+		if (!this.watched[dbKey]?.has(id))
+			return;
+
+		(this.updatedAt[dbKey] ??= {})[id] = updated;
+	}
+
+	shouldDelete(ref: SyncEnv_DeletedDocRef): boolean {
+		const backupUpdated = this.updatedAt[ref.__collectionName]?.[ref.__docId];
+		if (backupUpdated === undefined)
+			return true;
+
+		if (ref.__updated === undefined)
+			return true;
+
+		return ref.__updated > backupUpdated;
+	}
+}
