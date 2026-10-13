@@ -17,8 +17,15 @@ export type Request_FetchFromEnv = {
 	forceFull?: boolean
 }
 
-/** A source-side tombstone reference: the collection (dbKey) and the deleted document id. */
-export type SyncEnv_DeletedDocRef = { __collectionName: string, __docId: UniqueId };
+/**
+ * A source-side tombstone. `__updated` is the time of the delete.
+ * The sync-from-remote consumer compares it to the backup row when the same id is in both.
+ */
+export type SyncEnv_DeletedDocRef = {
+	__collectionName: string,
+	__docId: UniqueId,
+	__updated?: number,
+};
 
 /** Per-dbKey accounting of a delta apply. */
 export type SyncEnvDeltaSummary = { [dbKey: string]: { upserted: number, deleted: number, skipped: number } };
