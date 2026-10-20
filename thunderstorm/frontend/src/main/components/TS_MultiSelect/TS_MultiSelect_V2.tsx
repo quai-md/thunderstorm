@@ -129,7 +129,9 @@ export class TS_MultiSelect_Sortable<Binder extends Binder_MultiSelect<any, any,
 
 	private render_Item = (editable: EditableItem<Binder['InnerType'][]>, props: TS_ListOrganizer_RendererProps<Binder['InnerType']>) => {
 		const className = _className('multi-select__item-wrapper', props.dragged && 'dragged');
+		const key = this.props.getItemKey?.(props.item, props.index) ?? props.index;
 		return <LL_H_C
+			key={key}
 			className={className}
 			draggable={!this.props.disabled}
 			onDragStart={e => {
@@ -166,10 +168,11 @@ export class TS_MultiSelect_Sortable<Binder extends Binder_MultiSelect<any, any,
 			this.props.className
 		);
 
+		const itemsToRender = this.props.selectionFilter ? editable.item.filter(this.props.selectionFilter) : editable.item;
 		const SelectionRenderer = this.props.selectionRenderer as React.FC<MultiSelect_Selector<Binder['InnerType']>>;
 		return <LL_V_L className={className}>
 			<TS_ListOrganizer
-				items={editable.item}
+				items={itemsToRender}
 				renderer={(item) => this.render_Item(editable, item)}
 				onOrderChanged={async items => {
 					// @ts-ignore
