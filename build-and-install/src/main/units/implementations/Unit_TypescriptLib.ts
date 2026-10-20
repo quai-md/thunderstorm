@@ -64,7 +64,8 @@ const defaultTestPatterns: Record<TestType, string> = {
 	pure: '**/*.test.ts',
 	firebase: '**/*.test.firebase.ts',
 	ui: '**/*.test.ui.ts',
-	mobile: '**/*.test.mobile.ts'
+	mobile: '**/*.test.mobile.ts',
+	playwright: '**/*.test.playwright.ts',
 };
 const CONST_ESM_PREFIX = 'export NODE_OPTIONS=\'--import data:text/javascript,import%20%7B%20register%20%7D%20from%20%22node%3Amodule%22%3B%20import%20%7B%20pathToFileURL%20%7D%20from%20%22node%3Aurl%22%3B%20register%28%22ts-node%2Fesm%22%2C%20pathToFileURL%28%22.%2F%22%29%29%3B\'';
 const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config, runtimeContext: ProjectUnit_RuntimeContext) => Promise<string>> = {
@@ -103,6 +104,26 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
 	mobile: async () => {
 		throw new NotImplementedYetException('Mobile tests not implemented yet');
 	},
+	playwright: async (config, runtimeContext) => {
+		const command = resolve(runtimeContext.parentUnit.config.fullPath, 'node_modules/.bin/playwright');
+		let testFiles = runtimeContext.runtimeParams.testFiles;
+		if (!testFiles) {
+			const pattern = resolve(config.fullPath, 'src/test', defaultTestPatterns.playwright);
+			const absoluteFiles = [];
+			for await (const file of glob(pattern, {}))
+				absoluteFiles.push(file);
+
+			testFiles = absoluteFiles.map(file => path.relative(config.fullPath, file));
+		}
+
+		const cli_testFiles = testFiles.length > 0 ? ` ${testFiles.join(' ')}` : '';
+		const testCases = runtimeContext.runtimeParams.testCases;
+		const cli_testCases = testCases ? ` --grep '${testCases.join('|')}'` : '';
+		const debugPort = runtimeContext.runtimeParams.testDebugPort;
+		const cli_debug = debugPort ? ` --debug=${debugPort}` : '';
+
+		return `${command} test${cli_testFiles}${cli_testCases}${cli_debug}`;
+	},
 };
 
 /**
@@ -110,7 +131,7 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
  *
  * **Key Responsibilities**:
  * - Compiles TypeScript to JavaScript
- * - Runs tests (pure, firebase, ui, mobile)
+ * - Runs tests (pure, firebase, ui, mobile, playwright)
  * - Lints code
  * - Publishes packages
  * - Manages assets (JSON, SCSS, SVG, images)
@@ -132,6 +153,7 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
  * - **firebase**: Tests with Firebase emulators
  * - **ui**: UI tests (not implemented)
  * - **mobile**: Mobile tests (not implemented)
+ * - **playwright**: Browser tests (`**/*.test.playwright.ts`). The package ships its own `playwright.config.ts`.
  *
  * **Asset Management**: Automatically copies non-TypeScript files (JSON, SCSS, SVG, images)
  * to output directory during compilation.
@@ -186,6 +208,19 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 		},
 		mobile: async () => {
 			throw new NotImplementedYetException('Mobile tests not implemented yet');
+		},
+		playwright: async (config, runtimeContext) => {
+			const playwrightConfigPath = resolve(config.fullPath, 'playwright.config.ts');
+			if (!await FileSystemUtils.file.exists(playwrightConfigPath))
+				throw new ImplementationMissingException(`Missing playwright.config.ts in ${config.fullPath}. Quai frontends are webpack; this runner does not generate a Vite config.`);
+
+			const command = resolve(runtimeContext.parentUnit.config.fullPath, 'node_modules/.bin/playwright');
+			const commando = this.allocateCommando(Commando_NVM)
+				.cd(config.fullPath);
+			await this.executeAsyncCommando(commando, `${command} install chromium`, (stdout, stderr, exitCode) => {
+				if (exitCode !== 0)
+					throw new CommandoException('Failed to install Playwright chromium', stdout, stderr, exitCode);
+			});
 		},
 	};
 
