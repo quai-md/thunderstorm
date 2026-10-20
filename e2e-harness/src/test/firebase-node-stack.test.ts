@@ -44,11 +44,12 @@ describe('patchQuaiEmulatorData', () => {
 			},
 		};
 
+		const httpServer: {port?: number; ssl?: {key: string; cert: string}; cors: {origins: string[]}} = data._config.local.HttpServer;
 		patchQuaiEmulatorData(data, config, 8224);
 
-		expect(data._config.local.HttpServer).to.include({port: 8222});
-		expect(data._config.local.HttpServer.ssl).to.deep.equal({key: config.sslKey, cert: config.sslCert});
-		expect(data._config.local.HttpServer.cors.origins).to.include('https://127.0.0.1:8222');
+		expect(httpServer.port).to.equal(8222);
+		expect(httpServer.ssl).to.deep.equal({key: config.sslKey, cert: config.sslCert});
+		expect(httpServer.cors.origins).to.include('https://127.0.0.1:8222');
 		expect(data._frontend.km.ModuleFE_XHR.origin).to.equal('https://localhost:8222');
 		expect(data._frontend.km.ModuleFE_FirebaseListener.firebaseConfig.databaseURL).to.equal('http://127.0.0.1:8224?ns=quai-md-km-local');
 		expect(data._frontend.km.ModuleFE_FirebaseListener.emulatorConfig).to.deep.equal({hostname: '127.0.0.1', port: 8224});
