@@ -62,7 +62,7 @@ export function resolveQuaiStackConfig(layout: QuaiAppLayout): QuaiNodeStackConf
 	const sslKey = resolve(backendRoot, requiredString(backendUnit.sslKey, `${backendRoot}/__package.json unitConfig.sslKey`));
 	const sslCert = resolve(backendRoot, requiredString(backendUnit.sslCert, `${backendRoot}/__package.json unitConfig.sslCert`));
 	const start = requiredString(frontendPackage.scripts?.start, `${frontendRoot}/__package.json scripts.start`);
-	const webpackBin = resolve(layout.repoRoot, 'node_modules/.bin/webpack-dev-server');
+	const webpackBin = resolve(frontendRoot, 'node_modules/.bin/webpack-dev-server');
 	const webServerCommand = start
 		.replaceAll('{{__ENV__}}', 'local')
 		.replaceAll(' --open', '')
