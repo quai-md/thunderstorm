@@ -98,6 +98,8 @@
       "types": "./*.d.ts",
       "import": "./*.js"
     },
-    "./styles": "./styles.scss"
+    "./styles": {
+      "sass": "./styles.scss"
+    }
   }
 }

@@ -94,7 +94,6 @@
     "./*": {
       "types": "./*.d.ts",
       "import": "./*.js"
-    },
-    "./styles": "./styles.scss"
+    }
   }
 }
