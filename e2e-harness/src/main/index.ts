@@ -18,3 +18,10 @@ export type {
 	E2EHarnessOwnedResources,
 	E2EHarnessStartupHooks,
 } from './types.js';
+export {
+	patchQuaiEmulatorData,
+	resolveQuaiStackConfig,
+	startQuaiNodeStack,
+	type QuaiAppLayout,
+	type QuaiNodeStackConfig,
+} from './firebase-node-stack.js';

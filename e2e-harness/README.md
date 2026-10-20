@@ -2,7 +2,7 @@
 
 Copied into `quai-md/thunderstorm`. Do not replace this package by merging or cherry-picking `nu-art-js/thunderstorm`.
 
-Abstract programmatic bootstrap for product E2E stacks. Products implement `startup.startStack` (mongo, Firebase emulators, Storm backend); this package only ensures, health-polls, and tears down.
+`E2EHarness` ensures, polls, and tears down. `startQuaiNodeStack` is the Quai starter: `node dist/index.js` plus the Firebase data emulators, not the functions emulator. Product specs stay in the app packages.
 
 ## Purpose
 
