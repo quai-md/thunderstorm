@@ -153,7 +153,7 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
  * - **firebase**: Tests with Firebase emulators
  * - **ui**: UI tests (not implemented)
  * - **mobile**: Mobile tests (not implemented)
- * - **playwright**: Browser tests (`**/*.test.playwright.ts`). The package ships its own `playwright.config.ts`.
+ * - **playwright**: Browser tests named `sN-name.test.playwright.ts`. The package ships its own playwright.config.ts.
  *
  * **Asset Management**: Automatically copies non-TypeScript files (JSON, SCSS, SVG, images)
  * to output directory during compilation.
