@@ -32,3 +32,29 @@
     }
   }
 }
+
+.ts-multi-select__sortable {
+  --ms-tag--inner-color: white;
+  --ms-tag--outer-color: black;
+  gap: 8px;
+
+  .ts-list-organizer__list {
+    gap: 8px;
+  }
+
+  .multi-select__item-wrapper {
+    gap: 8px;
+    @include tag(var(--ms-tag--inner-color), var(--ms-tag--outer-color));
+  }
+
+  &:not(.disabled) {
+    .multi-select__item-wrapper {
+      -webkit-user-drag: element;
+      cursor: grab;
+
+      &.dragged {
+        cursor: grabbing;
+      }
+    }
+  }
+}

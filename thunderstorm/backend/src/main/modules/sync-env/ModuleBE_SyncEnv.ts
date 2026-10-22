@@ -48,7 +48,7 @@ import {Storm} from '../../core/Storm.js';
 import {ModuleBE_BackupDocDB} from '../../_entity/backup-doc/index.js';
 import {ModuleBE_SyncManager} from '../sync-manager/ModuleBE_SyncManager.js';
 import {ModuleBE_BaseDB} from '../db-api-gen/ModuleBE_BaseDB.js';
-import {SyncEnvDeltaSummaryBuilder, SyncEnvLocalNewerTracker, SyncEnv_LocalNewerMap} from './sync-env-delta.js';
+import {SyncEnvBackupRowIndex, SyncEnvDeltaSummaryBuilder, SyncEnvLocalNewerTracker, SyncEnv_LocalNewerMap} from './sync-env-delta.js';
 import {Readable, Transform, Writable} from 'stream';
 import {firestore} from 'firebase-admin';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
@@ -178,7 +178,7 @@ class ModuleBE_SyncEnv_Class
 
 		const perModule = await Promise.all(selectedModules.map(async dbKey => {
 			const deleted = await ModuleBE_SyncManager.queryDeleted(dbKey, {where: {__updated: {$gte: sinceTimestamp}}});
-			return deleted.map(item => ({__collectionName: item.__collectionName, __docId: item.__docId}));
+			return deleted.map(item => ({__collectionName: item.__collectionName, __docId: item.__docId, __updated: item.__updated}));
 		}));
 		return perModule.flat();
 	};
@@ -421,7 +421,8 @@ class ModuleBE_SyncEnv_Class
 	 * exceeds the watermark (or whose id is in `localNewer` — local edit / local delete),
 	 * drops restored `__deleted__docs` tombstones, deletes leftover local-newer ids missing
 	 * from the backup, and (when `deleteMissing` + `deletedDocs` are provided) removes
-	 * source-deleted docs locally.
+	 * source-deleted docs locally. An id that is also in the backup is deleted only when
+	 * the tombstone is strictly newer than that backup row's `__updated`.
 	 */
 	applyBackupStreamDelta = async (stream: Readable, options: {
 		selectedModules: string[],
@@ -434,7 +435,8 @@ class ModuleBE_SyncEnv_Class
 		localDeleted?: SyncEnv_LocalNewerMap,
 	}): Promise<SyncEnvDeltaSummary> => {
 		const summaryBuilder = new SyncEnvDeltaSummaryBuilder(options.watermark);
-		const writer = new CollectionDeltaWriter(options.chunkSize, summaryBuilder, options.selectedModules, options.localNewer, options.leftoverUnseen);
+		const backupRows = options.deleteMissing && options.deletedDocs?.length ? new SyncEnvBackupRowIndex(options.deletedDocs) : undefined;
+		const writer = new CollectionDeltaWriter(options.chunkSize, summaryBuilder, options.selectedModules, options.localNewer, options.leftoverUnseen, backupRows);
 		await new Promise<void>((resolve, reject) => {
 			stream
 				.pipe(writer)
@@ -451,8 +453,15 @@ class ModuleBE_SyncEnv_Class
 				await this.applyDeletes(unseen, options.selectedModules, options.chunkSize, summaryBuilder);
 		}
 
-		if (options.deleteMissing && options.deletedDocs?.length)
-			await this.applyDeletes(options.deletedDocs, options.selectedModules, options.chunkSize, summaryBuilder);
+		if (backupRows && options.deletedDocs?.length) {
+			const toDelete = options.deletedDocs.filter(ref => backupRows.shouldDelete(ref));
+			const kept = options.deletedDocs.length - toDelete.length;
+			if (kept)
+				this.logInfo(`Kept ${kept} backup rows whose __updated is at least the tombstone time`);
+
+			if (toDelete.length)
+				await this.applyDeletes(toDelete, options.selectedModules, options.chunkSize, summaryBuilder);
+		}
 
 		return summaryBuilder.summary;
 	};
@@ -636,16 +645,18 @@ class CollectionDeltaWriter
 	private readonly summaryBuilder: SyncEnvDeltaSummaryBuilder;
 	private readonly allowedDbKeys: Set<string>;
 	private readonly localNewer?: SyncEnvLocalNewerTracker;
+	private readonly backupRows?: SyncEnvBackupRowIndex;
 	private firestore: firestore.Firestore;
 	private batchWriter: firestore.WriteBatch;
 	private modules;
 
-	constructor(paginationSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder, selectedModules: string[], localNewer?: SyncEnv_LocalNewerMap, leftoverUnseen?: SyncEnv_LocalNewerMap) {
+	constructor(paginationSize: number, summaryBuilder: SyncEnvDeltaSummaryBuilder, selectedModules: string[], localNewer?: SyncEnv_LocalNewerMap, leftoverUnseen?: SyncEnv_LocalNewerMap, backupRows?: SyncEnvBackupRowIndex) {
 		super({objectMode: true});
 		this.paginationSize = paginationSize;
 		this.summaryBuilder = summaryBuilder;
 		this.allowedDbKeys = new Set(selectedModules);
 		this.localNewer = localNewer ? new SyncEnvLocalNewerTracker(localNewer, leftoverUnseen) : undefined;
+		this.backupRows = backupRows;
 		const firebaseSessionAdmin = ModuleBE_Firebase.createAdminSession();
 		this.firestore = firebaseSessionAdmin.getFirestoreV3().firestore;
 		this.batchWriter = this.firestore.batch();
@@ -669,6 +680,7 @@ class CollectionDeltaWriter
 			}
 
 			const data = JSON.parse(chunk.document);
+			this.backupRows?.note(chunk.dbKey, chunk._id, data.__updated);
 			const force = this.localNewer?.isLocalNewer(chunk.dbKey, chunk._id) ?? false;
 			if (force)
 				this.localNewer!.markSeen(chunk.dbKey, chunk._id);
