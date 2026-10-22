@@ -5,8 +5,8 @@
  */
 
 import {spawn, execSync, type ChildProcess} from 'node:child_process';
-import {cpSync, existsSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
-import {resolve} from 'node:path';
+import {cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {dirname, resolve} from 'node:path';
 import type {E2EHarnessOwnedResources} from './types.js';
 
 type JsonObject = {[key: string]: JsonValue};
@@ -46,6 +46,24 @@ type EmulatorPorts = {
 	logging?: number;
 };
 
+/** Live dev owns the package ports. Tests bind the same layout this many ports higher. */
+export const TestPortOffset = 100;
+
+export function buildWebServerCommand(start: string, databasePort: number, frontendPort: number): string {
+	return `export QUAI_E2E_DATABASE_PORT=${databasePort} && ${start} --port ${frontendPort}`;
+}
+
+export function shiftEmulatorPorts(emulators: {[key: string]: unknown}, offset: number): void {
+	for (const value of Object.values(emulators)) {
+		if (!isObject(value))
+			continue;
+		if (typeof value.port === 'number')
+			value.port += offset;
+		if (typeof value.websocketPort === 'number')
+			value.websocketPort += offset;
+	}
+}
+
 /** Read ports, project id, and the frontend start command from the app packages. */
 export function resolveQuaiStackConfig(layout: QuaiAppLayout): QuaiNodeStackConfig {
 	const backendRoot = resolve(layout.repoRoot, layout.backendDirName);
@@ -54,8 +72,9 @@ export function resolveQuaiStackConfig(layout: QuaiAppLayout): QuaiNodeStackConf
 	const frontendPackage = readPackageJson(resolve(frontendRoot, '__package.json'));
 	const backendUnit = unitConfig(backendPackage, backendRoot);
 	const frontendUnit = unitConfig(frontendPackage, frontendRoot);
-	const nodePort = requiredNumber(backendUnit.basePort, `${backendRoot}/__package.json unitConfig.basePort`);
-	const frontendPort = requiredNumber(frontendUnit.servingPort, `${frontendRoot}/__package.json unitConfig.servingPort`);
+	const nodePort = requiredNumber(backendUnit.basePort, `${backendRoot}/__package.json unitConfig.basePort`) + TestPortOffset;
+	const frontendPort = requiredNumber(frontendUnit.servingPort, `${frontendRoot}/__package.json unitConfig.servingPort`) + TestPortOffset;
+	const databasePort = liveDatabasePort(backendRoot) + TestPortOffset;
 	const projectId = requiredString(backendUnit.envs?.local?.projectId, `${backendRoot}/__package.json unitConfig.envs.local.projectId`);
 	const configUrl = requiredString(frontendUnit.envs?.local?.config?.configUrl, `${frontendRoot}/__package.json unitConfig.envs.local.config.configUrl`);
 	const frontendKey = frontendKeyFromConfigUrl(configUrl);
@@ -63,10 +82,14 @@ export function resolveQuaiStackConfig(layout: QuaiAppLayout): QuaiNodeStackConf
 	const sslCert = resolve(backendRoot, requiredString(backendUnit.sslCert, `${backendRoot}/__package.json unitConfig.sslCert`));
 	const start = requiredString(frontendPackage.scripts?.start, `${frontendRoot}/__package.json scripts.start`);
 	const webpackBin = resolve(frontendRoot, 'node_modules/.bin/webpack-dev-server');
-	const webServerCommand = start
-		.replaceAll('{{__ENV__}}', 'local')
-		.replaceAll(' --open', '')
-		.replace('webpack-dev-server', webpackBin);
+	const webServerCommand = buildWebServerCommand(
+		start
+			.replaceAll('{{__ENV__}}', 'local')
+			.replaceAll(' --open', '')
+			.replace('webpack-dev-server', webpackBin),
+		databasePort,
+		frontendPort,
+	);
 
 	return {
 		label: layout.label,
@@ -96,7 +119,7 @@ export async function startQuaiNodeStack(config: QuaiNodeStackConfig): Promise<E
 
 export function patchQuaiEmulatorData(data: JsonObject, config: QuaiNodeStackConfig, databasePort: number): void {
 	const rootConfig = asObject(data._config, '_config');
-	const local = asObject(rootConfig.local, '_config.local');
+	const local = asObject(rootConfig.local ??= {}, '_config.local');
 	const httpServer = asObject(local.HttpServer ??= {}, '_config.local.HttpServer');
 	httpServer.port = config.nodePort;
 	httpServer.ssl = {key: config.sslKey, cert: config.sslCert};
@@ -131,13 +154,14 @@ class QuaiNodeStack {
 	}
 
 	async start(): Promise<E2EHarnessOwnedResources> {
-		const ports = this.readEmulatorPorts();
+		const firebaseConfigPath = this.writeTestFirebaseConfig();
+		const ports = this.readEmulatorPorts(firebaseConfigPath);
 		this.assertRequiredFiles(ports);
 		for (const port of this.portsToOwn(ports))
 			assertPortFree(port);
 
 		const importPath = this.prepareEmulatorImport(ports.database);
-		this.firebase = await this.startFirebase(importPath);
+		this.firebase = await this.startFirebase(importPath, firebaseConfigPath);
 		this.backend = this.startBackend(ports);
 		return {teardown: () => this.stop()};
 	}
@@ -164,8 +188,27 @@ class QuaiNodeStack {
 			throw new Error(`${this.config.label} E2E: node port ${this.config.nodePort} collides with the Realtime Database emulator`);
 	}
 
-	private readEmulatorPorts(): EmulatorPorts {
-		const firebaseJsonPath = resolve(this.config.backendRoot, 'firebase.json');
+	private writeTestFirebaseConfig(): string {
+		const livePath = resolve(this.config.backendRoot, 'firebase.json');
+		const firebaseJson = readJsonFile(livePath);
+		const emulators = asObject(firebaseJson.emulators, `${livePath} emulators`);
+		shiftEmulatorPorts(emulators, TestPortOffset);
+		absoluteFirebasePaths(firebaseJson, this.config.backendRoot);
+
+		const directory = resolve(this.config.backendRoot, '.trash/e2e-firebase');
+		mkdirSync(directory, {recursive: true});
+		const configPath = resolve(directory, 'firebase.json');
+		writeFileSync(configPath, `${JSON.stringify(firebaseJson, null, '\t')}\n`);
+
+		const firebasercPath = resolve(this.config.backendRoot, '.firebaserc');
+		if (!existsSync(firebasercPath))
+			throw new Error(`${this.config.label} E2E: missing ${firebasercPath}`);
+
+		writeFileSync(resolve(directory, '.firebaserc'), readFileSync(firebasercPath));
+		return configPath;
+	}
+
+	private readEmulatorPorts(firebaseJsonPath: string): EmulatorPorts {
 		const firebaseJson = readJsonFile(firebaseJsonPath);
 		const emulators = asObject(firebaseJson.emulators, `${firebaseJsonPath} emulators`);
 		const firestore = asObject(emulators.firestore, `${firebaseJsonPath} emulators.firestore`);
@@ -216,19 +259,21 @@ class QuaiNodeStack {
 		return destination;
 	}
 
-	private async startFirebase(importPath: string): Promise<ChildProcess> {
+	private async startFirebase(importPath: string, firebaseConfigPath: string): Promise<ChildProcess> {
 		const firebaseBin = resolve(this.config.repoRoot, 'node_modules/.bin/firebase');
+		// No --export-on-exit. The hub locator is one file per project id, and the live
+		// suite already owns it, so an exit export is delivered to the live emulators.
 		const firebase = spawn(
 			firebaseBin,
 			[
+				'--config', firebaseConfigPath,
 				'emulators:start',
 				'--only', 'database,auth,storage,firestore,pubsub',
 				'--project', this.config.projectId,
 				'--import', importPath,
-				'--export-on-exit', importPath,
 			],
 			{
-				cwd: this.config.backendRoot,
+				cwd: dirname(firebaseConfigPath),
 				env: this.childEnv(this.emulatorEnv()),
 				stdio: ['ignore', 'pipe', 'pipe'],
 			},
@@ -249,7 +294,7 @@ class QuaiNodeStack {
 	}
 
 	private emulatorEnv(ports?: EmulatorPorts): NodeJS.ProcessEnv {
-		const resolved = ports ?? this.readEmulatorPorts();
+		const resolved = ports ?? this.readEmulatorPorts(resolve(this.config.backendRoot, '.trash/e2e-firebase/firebase.json'));
 		const firebaseConfig = JSON.stringify({
 			projectId: this.config.projectId,
 			databaseURL: `http://127.0.0.1:${resolved.database}?ns=${this.config.projectId}`,
@@ -272,8 +317,54 @@ class QuaiNodeStack {
 	private childEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 		const copy = {...env};
 		delete copy.NODE_OPTIONS;
+		delete copy.PORT;
+		copy.BACKEND_PORT = String(this.config.nodePort);
+		copy.PORT_BACKEND_APEX = String(this.config.nodePort);
 		return copy;
 	}
+}
+
+function liveDatabasePort(backendRoot: string): number {
+	const firebaseJsonPath = resolve(backendRoot, 'firebase.json');
+	const firebaseJson = readJsonFile(firebaseJsonPath);
+	const emulators = asObject(firebaseJson.emulators, `${firebaseJsonPath} emulators`);
+	const database = asObject(emulators.database, `${firebaseJsonPath} emulators.database`);
+	return requiredNumber(database.port, `${firebaseJsonPath} emulators.database.port`);
+}
+
+function absoluteFirebasePaths(config: JsonObject, backendRoot: string): void {
+	if (Array.isArray(config.database)) {
+		for (const entry of config.database) {
+			const database = asObject(entry, 'firebase.json database');
+			database.rules = absoluteConfigPath(backendRoot, database.rules, 'firebase.json database.rules');
+		}
+	}
+	if (isObject(config.firestore)) {
+		config.firestore.rules = absoluteConfigPath(backendRoot, config.firestore.rules, 'firebase.json firestore.rules');
+		config.firestore.indexes = absoluteConfigPath(backendRoot, config.firestore.indexes, 'firebase.json firestore.indexes');
+	}
+	if (isObject(config.storage))
+		config.storage.rules = absoluteConfigPath(backendRoot, config.storage.rules, 'firebase.json storage.rules');
+	if (!isObject(config.remoteconfig))
+		return;
+
+	const template = typeof config.remoteconfig.template === 'string'
+		? resolve(backendRoot, config.remoteconfig.template)
+		: undefined;
+	if (template && existsSync(template))
+		config.remoteconfig.template = template;
+	else
+		delete config.remoteconfig;
+}
+
+function absoluteConfigPath(backendRoot: string, value: unknown, label: string): string {
+	if (typeof value !== 'string' || value.length === 0)
+		throw new Error(`E2E stack: missing ${label}`);
+
+	const absolute = resolve(backendRoot, value);
+	if (!existsSync(absolute))
+		throw new Error(`E2E stack: missing ${absolute}`);
+	return absolute;
 }
 
 function assertPortFree(port: number): void {

@@ -5,7 +5,7 @@
  */
 
 import {expect} from 'chai';
-import {patchQuaiEmulatorData, type QuaiNodeStackConfig} from '../main/firebase-node-stack.js';
+import {buildWebServerCommand, patchQuaiEmulatorData, shiftEmulatorPorts, type QuaiNodeStackConfig} from '../main/firebase-node-stack.js';
 
 const config: QuaiNodeStackConfig = {
 	label: 'KM',
@@ -22,6 +22,26 @@ const config: QuaiNodeStackConfig = {
 	sslCert: '/tmp/localhost.crt',
 	webServerCommand: 'webpack-dev-server',
 };
+
+describe('test ports', () => {
+	it('starts webpack on the test frontend port and points it at the test database', () => {
+		expect(buildWebServerCommand('webpack-dev-server --env app.env=local', 8324, 8321))
+			.to.equal('export QUAI_E2E_DATABASE_PORT=8324 && webpack-dev-server --env app.env=local --port 8321');
+	});
+
+	it('moves every emulator port by the test offset', () => {
+		const emulators = {
+			singleProjectMode: true,
+			database: {port: 8224},
+			firestore: {port: 8225, websocketPort: 8226},
+			ui: {port: 8230, enabled: true},
+		};
+		shiftEmulatorPorts(emulators, 100);
+		expect(emulators.database.port).to.equal(8324);
+		expect(emulators.firestore).to.deep.equal({port: 8325, websocketPort: 8326});
+		expect(emulators.ui).to.deep.equal({port: 8330, enabled: true});
+	});
+});
 
 describe('patchQuaiEmulatorData', () => {
 	it('points the node server, the frontend, and the database emulator at the local ports', () => {
@@ -53,5 +73,17 @@ describe('patchQuaiEmulatorData', () => {
 		expect(data._frontend.km.ModuleFE_XHR.origin).to.equal('https://localhost:8222');
 		expect(data._frontend.km.ModuleFE_FirebaseListener.firebaseConfig.databaseURL).to.equal('http://127.0.0.1:8224?ns=quai-md-km-local');
 		expect(data._frontend.km.ModuleFE_FirebaseListener.emulatorConfig).to.deep.equal({hostname: '127.0.0.1', port: 8224});
+	});
+
+	it('creates the local config layer when the export does not have one', () => {
+		const exportData: {
+			_config: {default: object; local?: {HttpServer?: {port?: number}}};
+			_frontend: {advisor: object};
+		} = {
+			_config: {default: {}},
+			_frontend: {advisor: {}},
+		};
+		patchQuaiEmulatorData(exportData, {...config, frontendKey: 'advisor', nodePort: 8402, frontendPort: 8401, frontendOrigin: 'https://localhost:8401', backendOrigin: 'https://localhost:8402'}, 8404);
+		expect(exportData._config.local?.HttpServer?.port).to.equal(8402);
 	});
 });
