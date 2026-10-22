@@ -1,15 +1,28 @@
 import {UnitPhaseImplementor} from '../../../core/types.js';
-import {CONST_BuildImageDir, CONST_FirebaseJSON, CONST_FirebaseRC, CONST_LatestTag, CONST_PackageJSON, CONST_TrashDir, CONST_VersionApp} from '../../../config/consts.js';
-import {FirebasePackageConfig} from '../../../config/types/index.js';
+import {
+	CONST_BuildImageDir,
+	CONST_FirebaseJSON,
+	CONST_FirebaseRC,
+	CONST_LatestTag,
+	CONST_PackageJSON,
+	CONST_TrashDir,
+	CONST_VersionApp
+} from '../../../config/consts.js';
+import {FirebasePackageConfig} from '../../../config/types/package/package.js';
 import {__stringify, _keys, _logger_logPrefixes, deepClone, ImplementationMissingException, LogLevel, Second, sleep, StringMap} from '@nu-art/ts-common';
-import {Const_FirebaseConfigKeys, Const_FirebaseDefaultsKeyToFile, FunctionBuildTemplateFiles} from '../../../templates/consts.js';
-import {Commando_NVM} from '@nu-art/commando';
-import {Phase_BuildPushImage, Phase_Deploy, Phase_DeployImage, Phase_Launch} from '../../../phases/definitions/index.js';
-import {resolve} from 'path';
-import {DEFAULT_OLD_TEMPLATE_PATTERN, FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
+import {Const_FirebaseConfigKeys, Const_FirebaseDefaultsKeyToFile, Default_Files, FunctionBuildTemplateFiles} from '../../../templates/consts.js';
+import {Commando_NVM, CommandoException} from '@nu-art/commando';
+import {Phase_BuildPushImage, Phase_Deploy, Phase_DeployImage, Phase_Launch} from '../../../phases/definitions/consts.js';
+import {dirname, resolve} from 'path';
+import {existsSync} from 'fs';
+import {DEFAULT_TEMPLATE_PATTERN, FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
 import {Unit_TypescriptLib, Unit_TypescriptLib_Config} from '../Unit_TypescriptLib.js';
-import {CommandoException} from '@nu-art/commando';
-import {deployLogFilter, ensureArtifactRegistryRepository} from './common.js';
+import {deployLogFilter, ensureArtifactRegistryRepository, resolveCloudRunRegion, resolveDatabaseURL} from './common.js';
+import {mongoEmuContainerBaseName, mongoEmuContainerName, mongoReplicaSetEnsureEval} from './mongo-emulator.js';
+import {vendoredFileSpecifier} from './vendored-file-specifier.js';
+
+/** Exit code BaseStorm uses when RTDB config changes and the node server must restart. */
+const StormConfigChangeExitCode = 2;
 
 export const firebaseFunctionEmulator_ErrorStrings: string[] = [
 	'functions: Failed',
@@ -40,6 +53,12 @@ export type FunctionConfig = {
 	resources?: FunctionResourceConfig; // Per-function resource configuration
 };
 
+export type MongoEmulatorConfig = {
+	port?: number;    // Defaults to basePort + 11
+	dbName?: string;  // Defaults to 'default'
+	dataDir?: string; // Folder name under unit .trash; defaults to 'mongo-data'
+};
+
 export type Unit_FirebaseFunctionsApp_Config = Unit_TypescriptLib_Config & {
 	firebaseConfig?: FirebasePackageConfig;
 	pathToFirebaseConfig: string,
@@ -51,16 +70,19 @@ export type Unit_FirebaseFunctionsApp_Config = Unit_TypescriptLib_Config & {
 	sslCert: string
 	pathToEmulatorData: string
 	sources?: string[];
-	// Support both legacy format (string[]) and new format (FunctionConfig[])
-	functions: string[] | FunctionConfig[]; // Array of function names (legacy) or function configs
+	functions: string[] | FunctionConfig[];
+	runtime?: 'firebase-emulator' | 'node';
+	mongo?: MongoEmulatorConfig;
 	containerDeployment?: {
 		artifactRegistry: {
-			region: string;        // e.g., 'us-central1'
-			repository: string;     // e.g., 'firebase-functions'
-			projectId: string;     // GCP project ID
+			region: string;
+			repository: string;
+			projectId: string;
 		};
-		imageName: string;         // Required: Docker image name (must be lowercase, alphanumeric with dots, underscores, or hyphens)
-		dockerfile?: string;      // Path to Dockerfile, defaults to './Dockerfile'
+		/** Cloud Run region for deploy/delete; defaults to artifactRegistry.region (the image region) when unset. */
+		runRegion?: string;
+		imageName: string;
+		dockerfile?: string;
 	};
 };
 
@@ -144,16 +166,15 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			return dependencies;
 		}, dependencies);
 
-		// Then, add ALL dependencyUnits to the dependencies (this includes transitive dependencies)
-		// This ensures the entire dependency tree is referenced in the main package.json
-		this.dependencyUnits.reduce((dependencies, unit) => {
+		// Then, add in-repo packages named in package.json plus the BAI graph (transitive).
+		this.unitsToVendorIntoImage().reduce((dependencies, unit) => {
 			dependencies[unit.config.key] = distDependencies[unit.config.key];
 			return dependencies;
 		}, dependencies);
 
 		packageJson.dependencies = dependencies;
 
-		await FileSystemUtils.file.template.write(targetPath, __stringify(packageJson, true), this.deriveDistDependencies(), DEFAULT_OLD_TEMPLATE_PATTERN);
+		await FileSystemUtils.file.template.write(targetPath, __stringify(packageJson, true), this.deriveDistDependencies(), DEFAULT_TEMPLATE_PATTERN);
 	}
 
 	async prepare() {
@@ -187,15 +208,92 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 	async launch() {
 		await sleep(2 * Second * Unit_FirebaseFunctionsApp.staggerCount++);
 		await this.releaseEmulatorPorts();
-		await Promise.all([
-			this.runProxy(),
-			this.runEmulator(),
-		]);
+
+		if (this.config.mongo)
+			await this.startMongoEmulator();
+
+		if (this.config.runtime === 'node') {
+			await this.runDirectNode();
+			return;
+		}
+
+		let emulatorPromise: Promise<void> | undefined;
+
+		const proxyPromise = this.runProxy(() => {
+			emulatorPromise = this.runEmulator();
+		});
+
+		await proxyPromise;
+
+		if (emulatorPromise)
+			await emulatorPromise;
 	}
 
 	async releaseEmulatorPorts() {
-		const allPorts = Array.from({length: 10}, (_, i) => `${this.config.basePort + i}`);
+		const allPorts = Array.from({length: 11}, (_, i) => `${this.config.basePort + i}`);
+		// Mongo is docker-managed (mongo-emu--*); startMongoEmulator/stopMongoEmulator use
+		// docker rm — never releasePorts on the mongo port (kills com.docker on macOS).
 		return this.releasePorts(allPorts);
+	}
+
+	//######################### MongoDB Emulator #########################
+
+	private resolveMongoPort(): number {
+		return this.config.mongo?.port ?? this.config.basePort + 11;
+	}
+
+	private resolveMongoContainerName(): string {
+		return mongoEmuContainerName(this.config.key, this.resolveMongoPort());
+	}
+
+	private resolveMongoDataPath(): string {
+		const dir = this.config.mongo?.dataDir ?? 'mongo-data';
+		if (dir.startsWith('/') || dir.includes('..'))
+			throw new ImplementationMissingException(`Invalid mongo.dataDir "${dir}": must be a folder name under unit .trash (no absolute paths or .. segments)`);
+
+		return resolve(this.config.fullPath, CONST_TrashDir, dir);
+	}
+
+	private async startMongoEmulator() {
+		const port = this.resolveMongoPort();
+		const containerName = this.resolveMongoContainerName();
+		const mongoDataPath = this.resolveMongoDataPath();
+
+		await FileSystemUtils.folder.create(mongoDataPath);
+
+		this.logInfo(`Starting MongoDB emulator on port ${port} (container: ${containerName}, data: ${mongoDataPath})`);
+
+		const stopAction = async () => this.stopMongoEmulator();
+		this.registerTerminatable(stopAction);
+
+		const commando = this.allocateCommando();
+		const legacyName = mongoEmuContainerBaseName(this.config.key);
+		await this.executeAsyncCommando(commando, `docker rm -f ${legacyName} ${containerName} 2>/dev/null; docker run -d --name ${containerName} -p ${port}:${port} -v ${mongoDataPath}:/data/db mongo:7 --replSet rs0 --port ${port}`, (stdout, stderr, exitCode) => {
+			if (exitCode !== 0)
+				throw new CommandoException(`Failed to start MongoDB emulator container`, stdout, stderr, exitCode);
+		});
+
+		const initCommando = this.allocateCommando();
+		const ensureEval = JSON.stringify(mongoReplicaSetEnsureEval(port));
+		await this.executeAsyncCommando(initCommando, `sleep 3 && docker exec ${containerName} mongosh --port ${port} --quiet --eval ${ensureEval}`, (stdout, stderr, exitCode) => {
+			if (exitCode !== 0)
+				throw new CommandoException(`Failed to initiate MongoDB replica set`, stdout, stderr, exitCode);
+		});
+
+		this.logInfo(`MongoDB emulator started as replica set on port ${port}`);
+	}
+
+	private async stopMongoEmulator() {
+		const containerName = this.resolveMongoContainerName();
+		const legacyName = mongoEmuContainerBaseName(this.config.key);
+		this.logInfo(`Stopping MongoDB emulator (container: ${containerName})`);
+
+		try {
+			const commando = this.allocateCommando();
+			await this.executeAsyncCommando(commando, `docker rm -f ${legacyName} ${containerName}`, () => {});
+		} catch (e: any) {
+			this.logWarning(`Failed to stop MongoDB emulator container: ${e.message}`);
+		}
 	}
 
 	async deploy() {
@@ -297,7 +395,10 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 		// Build context will be staging directory
 		const dockerfileName = containerDeployment.dockerfile || 'Dockerfile';
 		const dockerfilePath = resolve(stagingDir, dockerfileName);
-		await FileSystemUtils.file.template.copy(FunctionBuildTemplateFiles.dockerfile, dockerfilePath, {});
+		const dockerfileTemplate = this.config.runtime === 'node'
+			? FunctionBuildTemplateFiles.dockerfileNode
+			: FunctionBuildTemplateFiles.dockerfile;
+		await FileSystemUtils.file.template.copy(dockerfileTemplate, dockerfilePath, {});
 		this.logInfo(`Created Dockerfile at ${dockerfilePath}`);
 
 		const metadata = {
@@ -426,8 +527,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			throw new ImplementationMissingException(`Missing containerDeployment config in unit ${this.config.key}`);
 		}
 
-		const artifactRegistry = containerDeployment.artifactRegistry;
-		const region = artifactRegistry.region;
+		const region = resolveCloudRunRegion(containerDeployment);
 		// Use runtime project ID (where function is deployed), not Artifact Registry project ID
 		const envConfig = this.getEnvConfig();
 		const runtimeProjectId = envConfig.projectId;
@@ -596,6 +696,11 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 
 		this.logInfo(`Deploying container image: ${imageReference}`);
 
+		if (this.config.runtime === 'node') {
+			await this.deployNodeContainer(imageReference, resolveCloudRunRegion(containerDeployment));
+			return;
+		}
+
 		// Validate that configured functions exist in compiled code
 		await this.validateFunctionsExist();
 
@@ -620,7 +725,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			functionsToDeploy = allFunctionConfigs;
 		}
 
-		const region = artifactRegistry.region;
+		const region = resolveCloudRunRegion(containerDeployment);
 		// Use runtime project ID (where function is deployed), not Artifact Registry project ID
 		const envConfig = this.getEnvConfig();
 		const runtimeProjectId = envConfig.projectId;
@@ -657,7 +762,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			const locationId = region.replace(/\d+$/, ''); // Remove trailing digits
 			const firebaseConfig = {
 				projectId: runtimeProjectId,
-				databaseURL: `https://${runtimeProjectId}-default-rtdb.firebaseio.com`,
+				databaseURL: resolveDatabaseURL(runtimeProjectId, region),
 				storageBucket: `${runtimeProjectId}.appspot.com`,
 				locationId: locationId
 			};
@@ -689,7 +794,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 
 			// Build Cloud Run service YAML definition using template
 			const resources = functionConfig.resources;
-			
+
 			// Generate environment variables as YAML array
 			// Indentation: 8 spaces for list item, 10 spaces for value (under env: which is at 8 spaces)
 			const envVarsYaml = Object.entries(envVars)
@@ -710,10 +815,10 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 
 			// Build template parameters
 			// Convert cpu to string if it's a number
-			const cpuValue = resources?.cpu !== undefined 
+			const cpuValue = resources?.cpu !== undefined
 				? (typeof resources.cpu === 'number' ? resources.cpu.toString() : resources.cpu)
 				: '1';
-			
+
 			const serviceYamlParams = {
 				SERVICE_NAME: serviceName,
 				FUNCTION_NAME: functionName,
@@ -774,6 +879,101 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 		this.logInfo(`Functions deployed: `, this.functions);
 	}
 
+	private async deployNodeContainer(imageReference: string, region: string) {
+		const envConfig = this.getEnvConfig();
+		const runtimeProjectId = envConfig.projectId;
+		const allFunctionConfigs = this.normalizeFunctionConfigs();
+
+		const commando = this.allocateCommando(Commando_NVM).applyNVM()
+			.cd(this.config.fullPath)
+			.setLogLevelFilter(deployLogFilter);
+
+		for (const functionConfig of allFunctionConfigs) {
+			const serviceName = functionConfig.name.replace(/_/g, '-');
+			const resources = functionConfig.resources;
+			const buildOutputDir = resolve(this.config.fullPath, CONST_TrashDir);
+
+			this.logInfo(`Deploying Node container as Cloud Run service: ${serviceName}`);
+
+			const locationId = region.replace(/\d+$/, '');
+			const envVars: Record<string, string> = {
+				GCLOUD_PROJECT: runtimeProjectId,
+				GOOGLE_CLOUD_PROJECT: runtimeProjectId,
+				FIREBASE_CONFIG: JSON.stringify({
+					projectId: runtimeProjectId,
+					databaseURL: resolveDatabaseURL(runtimeProjectId, region),
+					storageBucket: `${runtimeProjectId}.appspot.com`,
+					locationId: locationId,
+				}),
+			};
+
+			const envVarsYaml = Object.entries(envVars)
+				.map(([name, value]) => {
+					const escapedValue = typeof value === 'string' ? JSON.stringify(value) : value;
+					return `        - name: ${name}\n          value: ${escapedValue}`;
+				})
+				.join('\n');
+
+			const serviceAccountYaml = functionConfig.serviceAccountName
+				? `      serviceAccountName: ${functionConfig.serviceAccountName}`
+				: '';
+
+			const cpuValue = resources?.cpu !== undefined
+				? (typeof resources.cpu === 'number' ? resources.cpu.toString() : resources.cpu)
+				: '1';
+
+			const serviceYamlParams = {
+				SERVICE_NAME: serviceName,
+				REGION: region,
+				RUNTIME_PROJECT_ID: runtimeProjectId,
+				IMAGE_REFERENCE: imageReference,
+				MAX_INSTANCES: (resources?.maxInstances ?? 100).toString(),
+				MIN_INSTANCES: (resources?.minInstances ?? 0).toString(),
+				CONCURRENCY: (resources?.concurrency ?? 100).toString(),
+				TIMEOUT: (resources?.timeout ?? 540).toString(),
+				CPU: cpuValue,
+				MEMORY: resources?.memory || '2Gi',
+				ENV_VARS: envVarsYaml,
+				SERVICE_ACCOUNT: serviceAccountYaml,
+			};
+
+			const serviceYamlFile = resolve(buildOutputDir, `service-${functionConfig.name}.yaml`);
+			await FileSystemUtils.file.template.copy(FunctionBuildTemplateFiles.serviceNodeYaml, serviceYamlFile, serviceYamlParams);
+			this.logInfo(`Created service YAML at ${serviceYamlFile}`);
+
+			const serviceYamlFileRelative = serviceYamlFile.replace(`${this.config.fullPath}/`, '');
+			const gcloudDeployCommand = `gcloud run services replace ${serviceYamlFileRelative} --region=${region} --project=${runtimeProjectId}`;
+
+			if (this.runtimeContext.runtimeParams.dryRun) {
+				this.logInfo(`[DRY RUN] Would execute: ${gcloudDeployCommand}`);
+				continue;
+			}
+
+			await this.executeAsyncCommando(commando, gcloudDeployCommand, (stdout, stderr, exitCode) => {
+				if (exitCode === 0)
+					return;
+
+				throw new CommandoException(`Failed to deploy service ${serviceName} with exit code ${exitCode}`, stdout, stderr, exitCode);
+			});
+
+			const getUrlCommand = `gcloud run services describe ${serviceName} --region=${region} --project=${runtimeProjectId} --format="value(status.url)"`;
+			await this.executeAsyncCommando(commando, getUrlCommand, (stdout, stderr, exitCode) => {
+				if (exitCode === 0) {
+					const url = stdout.trim();
+					if (url) {
+						this.functions[functionConfig.name] = url;
+						this.logInfo(`Service ${serviceName} deployed at: ${url}`);
+					}
+					return;
+				}
+
+				this.logWarning(`Failed to retrieve URL for service ${serviceName}: ${stderr || stdout}`);
+			});
+		}
+
+		this.logInfo(`Node services deployed: `, this.functions);
+	}
+
 
 	//######################### ResolveConfig Logic #########################
 
@@ -806,9 +1006,9 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 	private async resolveProxyFile() {
 		const envConfig = this.getEnvConfig();
 		const targetPath = this.pathToProxy();
-		const path = this.runtimeContext.baiConfig.files?.backend?.proxy;
-		if (!path)
-			return;
+		const templatePath = this.runtimeContext.baiConfig.files?.backend?.proxy ?? Default_Files.backend!.proxy!;
+
+		await FileSystemUtils.folder.create(resolve(this.config.fullPath, '.trash/proxy'));
 
 		const params = {
 			PROJECT_ID: `${envConfig.projectId}`,
@@ -817,11 +1017,11 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			PATH_TO_SSL_KEY: `${this.config.sslKey}`,
 			PATH_TO_SSL_CERTIFICATE: `${this.config.sslCert}`,
 		};
-		await FileSystemUtils.file.template.copy(path, targetPath, params);
+		await FileSystemUtils.file.template.copy(templatePath, targetPath, params);
 	}
 
 	private pathToProxy() {
-		return resolve(this.config.fullPath, 'src/main/proxy.ts');
+		return resolve(this.config.fullPath, '.trash/proxy/proxy.ts');
 	}
 
 	private async resolveConfigDir() {
@@ -945,17 +1145,82 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 		await FileSystemUtils.file.write.json(targetPath, {version: appVersion});
 	}
 
+	/**
+	 * In-repo packages that must ship as `file:` deps in the Cloud Run image.
+	 * Walks the app package.json plus each vendored unit's package.json so a nested
+	 * lib (e.g. organization-backend → passkey) is copied even if the BAI graph omitted it.
+	 */
+	private unitsToVendorIntoImage(): Unit_TypescriptLib[] {
+		const innerByKey = new Map<string, Unit_TypescriptLib>();
+		for (const unit of this.runtimeContext.childUnits) {
+			if (unit.isInstanceOf(Unit_TypescriptLib))
+				innerByKey.set(unit.config.key, unit as Unit_TypescriptLib);
+		}
+
+		const byKey = new Map<string, Unit_TypescriptLib>();
+		const stack: Unit_TypescriptLib[] = [...(this.dependencyUnits ?? [])];
+		for (const key of _keys(this.config.packageJson.dependencies ?? {})) {
+			const unit = innerByKey.get(String(key));
+			if (unit)
+				stack.push(unit);
+		}
+
+		while (stack.length) {
+			const unit = stack.pop()!;
+			if (byKey.has(unit.config.key))
+				continue;
+			byKey.set(unit.config.key, unit);
+			for (const key of _keys(unit.config.packageJson.dependencies ?? {})) {
+				const dep = innerByKey.get(String(key));
+				if (dep)
+					stack.push(dep);
+			}
+		}
+		return [...byKey.values()];
+	}
+
 	protected deriveDistDependencies() {
-		return this.dependencyUnits.reduce((dependencies, unit) => {
+		return this.unitsToVendorIntoImage().reduce((dependencies, unit) => {
 			dependencies[unit.config.key] = `file:.dependencies/${unit.config.key}`;
 			return dependencies;
 		}, super.deriveDistDependencies());
 	}
 
+	private async rewriteVendoredPackageJsonAsSiblings(packageJsonPath: string, vendoredKeys: Set<string>) {
+		if (!existsSync(packageJsonPath))
+			return;
+
+		const pkg = await FileSystemUtils.file.read.json<{
+			dependencies?: Record<string, string>;
+			devDependencies?: Record<string, string>;
+		}>(packageJsonPath);
+		let changed = false;
+		for (const field of ['dependencies', 'devDependencies'] as const) {
+			const deps = pkg[field];
+			if (!deps)
+				continue;
+			for (const key of _keys(deps)) {
+				if (!vendoredKeys.has(String(key)))
+					continue;
+				const next = vendoredFileSpecifier(
+					dirname(packageJsonPath),
+					String(key),
+					resolve(this.config.output, '.dependencies'),
+				);
+				if (deps[key] !== next) {
+					deps[key] = next;
+					changed = true;
+				}
+			}
+		}
+		if (changed)
+			await FileSystemUtils.file.write.json(packageJsonPath, pkg);
+	}
+
 	private async createDependenciesDir() {
-		//Gather units that are dependencies of this unit
-		await Promise.all(this.dependencyUnits.map(async unit => {
-			//Copy dependency unit output into this units output/.dependency dir
+		const units = this.unitsToVendorIntoImage();
+		const vendoredKeys = new Set(units.map(unit => unit.config.key));
+		await Promise.all(units.map(async unit => {
 			const dependencyOutputPath = `${unit.config.output}/`;
 			const targetPath = `${this.config.output}/.dependencies/${unit.config.key}/`;
 			await FileSystemUtils.folder.create(targetPath);
@@ -964,18 +1229,186 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 				.append(`rsync -a --delete ${dependencyOutputPath} ${targetPath}`)
 				.execute();
 		}));
+
+		await Promise.all(units.map(unit =>
+			this.rewriteVendoredPackageJsonAsSiblings(`${this.config.output}/.dependencies/${unit.config.key}/${CONST_PackageJSON}`, vendoredKeys)));
+
+		const rootPackageJsonPath = resolve(this.config.output, CONST_PackageJSON);
+		const rootPkg = await FileSystemUtils.file.read.json<{ dependencies?: Record<string, string> }>(rootPackageJsonPath);
+		rootPkg.dependencies = rootPkg.dependencies ?? {};
+		for (const key of vendoredKeys)
+			rootPkg.dependencies[key] = `file:.dependencies/${key}`;
+		await FileSystemUtils.file.write.json(rootPackageJsonPath, rootPkg);
 	}
 
 	//######################### Launch Logic #########################
 
-	private async runProxy() {
+	private async runProxy(onReady?: () => void) {
 		await this.resolveProxyFile();
 
 		const commando = this.allocateCommando(Commando_NVM).applyNVM()
 			.cd(this.config.fullPath);
 
-		await this.executeAsyncCommando(commando, `${this.npmCommand('tsx')} src/main/proxy.ts`);
+		let readyFired = false;
+		commando.addLogProcessor((log) => {
+			if (!readyFired && log.includes('SSL proxy started at port')) {
+				readyFired = true;
+				onReady?.();
+			}
+			return true;
+		});
+
+		await this.executeAsyncCommando(commando, `${this.npmCommand('tsx')} .trash/proxy/proxy.ts`);
 		this.logWarning('PROXY TERMINATED');
+	}
+
+	private async runDirectNode() {
+		const projectId = this.config.envConfig.projectId;
+		const port = this.config.basePort;
+
+		const {ready, terminated: emulatorTerminated} = this.startEmulators();
+		await ready;
+
+		const commando = this.allocateCommando(Commando_NVM).applyNVM()
+			.setUID(this.config.key)
+			.cd(this.config.fullPath)
+			.setLogLevelFilter((log, type) => {
+				if (this.emulatorLogStrings.error.some(errStr => log.includes(errStr)))
+					return LogLevel.Error;
+
+				if (this.emulatorLogStrings.warning.some(warnStr => log.includes(warnStr)))
+					return LogLevel.Warning;
+			})
+			.onLog(/.*Listening on port.*/, () => this.setStatus('Launch Complete'));
+
+		if (this.config.mongo)
+			commando.custom(`export MONGODB_EMULATOR_HOST=localhost:${this.resolveMongoPort()}`);
+
+		// Storm HttpServer reads BACKEND_PORT (not BAI's unitConfig basePort).
+		commando.custom(`export BACKEND_PORT=${port}`);
+		commando.custom(`export PORT_BACKEND_APEX=${port}`);
+		const mcpBridgePort = process.env.PORT_MCP_BRIDGE || (port === 8352 ? '9999' : '10999');
+		commando.custom(`export PORT_MCP_BRIDGE=${mcpBridgePort}`);
+
+		commando.custom(`export GCLOUD_PROJECT=${projectId}`);
+		commando.custom(`export GOOGLE_CLOUD_PROJECT=${projectId}`);
+		commando.custom(`export FUNCTIONS_EMULATOR=true`);
+		commando.custom(`export FIREBASE_DATABASE_EMULATOR_HOST=localhost:${port + 2}`);
+		commando.custom(`export FIREBASE_AUTH_EMULATOR_HOST=localhost:${port + 7}`);
+		commando.custom(`export FIRESTORE_EMULATOR_HOST=localhost:${port + 3}`);
+		commando.custom(`export FIREBASE_STORAGE_EMULATOR_HOST=localhost:${port + 6}`);
+		commando.custom(`export PUBSUB_EMULATOR_HOST=localhost:${port + 5}`);
+
+		const firebaseConfig = JSON.stringify({
+			projectId,
+			databaseURL: `http://localhost:${port + 2}?ns=${projectId}`,
+			storageBucket: `${projectId}.appspot.com`,
+		});
+		commando.custom(`export FIREBASE_CONFIG='${firebaseConfig}'`);
+
+		const inspectFlag = this.runtimeContext.runtimeParams.debugBackend
+			? `--inspect=0.0.0.0:${this.config.debugPort}` : '';
+
+		const entryPoint = `${this.config.output}/index.js`;
+		const nodeCommand = `node --watch ${inspectFlag} ${entryPoint}`;
+
+		// BaseStorm calls process.exit(StormConfigChangeExitCode) on RTDB config change.
+		// node --watch should exit with that code, but can stay alive with a dead child;
+		// force-kill the captured pid when we see the log so the restart loop unblocks.
+		let nodePid: number | undefined;
+		commando.onLog(/CONFIGURATION HAS CHANGED.*KILLING PROCESS/, () => {
+			if (nodePid === undefined)
+				return;
+
+			this.logInfo('RTDB config changed — stopping node for restart...');
+			void commando.killSubprocess(nodePid);
+		});
+
+		const waitForEntryPoint = async () => {
+			while (!existsSync(entryPoint)) {
+				if (this.shouldStop())
+					return false;
+
+				this.logInfo(`Waiting for ${entryPoint}...`);
+				await this.interruptibleSleep(2 * Second);
+			}
+			return true;
+		};
+
+		while (!this.shouldStop()) {
+			// Watch dies with MODULE_NOT_FOUND when compile wipes dist. Wait on every
+			// restart, not just first start — otherwise the loop hammers the missing file.
+			if (!await waitForEntryPoint())
+				return this.terminateNode(emulatorTerminated);
+
+			let exitCode = -1;
+			nodePid = undefined;
+			await this.executeAsyncCommando(commando, nodeCommand, (stdout, stderr, code) => exitCode = code, _pid => nodePid = _pid);
+
+			// SIGINT (130) or SIGTERM (143) → intentional shutdown, stop.
+			if (this.shouldStop() || exitCode === 130 || exitCode === 143)
+				break;
+
+			// Exit 0 without kill() in progress is not launch teardown — restart.
+			// (BaseStorm uses exit 2 for RTDB config change; a spurious 0 must not
+			// reach terminateNode while the emulator is still running.)
+			if (exitCode === 0) {
+				this.logWarning('Process exited (0) unexpectedly — restarting...');
+				await this.interruptibleSleep(Second);
+				continue;
+			}
+
+			if (exitCode === StormConfigChangeExitCode)
+				this.logInfo('RTDB config changed — restarting node server...');
+			else
+				this.logWarning(`Process exited (${exitCode}), restarting...`);
+
+			await this.interruptibleSleep(Second);
+		}
+
+		return this.terminateNode(emulatorTerminated);
+	}
+
+	/**
+	 * The node loop ending is NOT the end of teardown: the firebase emulator runs
+	 * as a sibling child that must finish its clean shutdown (export-on-exit) too.
+	 * Awaiting its termination here keeps `launch()` open until the emulator is
+	 * actually down — otherwise the outer run completes and `process.exit(0)` races
+	 * the emulator's shutdown, orphaning firestore/pubsub.
+	 */
+	private async terminateNode(emulatorTerminated: Promise<void>) {
+		await emulatorTerminated;
+		this.logWarning('NODE SERVER TERMINATED');
+	}
+
+	/**
+	 * Starts the firebase emulators and exposes two lifecycle handles:
+	 * - `ready`: resolves once all emulators are up (the node server may start)
+	 * - `terminated`: resolves once the emulator CLI has fully shut down
+	 */
+	private startEmulators(): { ready: Promise<void>; terminated: Promise<void> } {
+		let resolveReady!: () => void;
+		const ready = new Promise<void>(resolve => resolveReady = resolve);
+
+		const commando = this.allocateCommando(Commando_NVM).applyNVM()
+			.setUID(`${this.config.key}-emulators`)
+			.cd(this.config.fullPath)
+			.setLogLevelFilter((log, type) => {
+				if (this.emulatorLogStrings.error.some(errStr => log.includes(errStr)))
+					return LogLevel.Error;
+
+				if (this.emulatorLogStrings.warning.some(warnStr => log.includes(warnStr)))
+					return LogLevel.Warning;
+			})
+			.onLog(/.*All emulators ready.*/, () => {
+				this.logInfo('Firebase emulators ready — starting Node server');
+				resolveReady();
+			});
+
+		const terminated = this.executeAsyncCommando(commando, `${this.npmCommand('firebase')} emulators:start --only database,auth,storage,firestore,pubsub --project ${this.config.envConfig.projectId} --export-on-exit --import=${this.config.pathToEmulatorData}`)
+			.then(() => this.logWarning('EMULATORS TERMINATED'));
+
+		return {ready, terminated};
 	}
 
 	private async runEmulator() {
@@ -990,6 +1423,9 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 					return LogLevel.Warning;
 			})
 			.onLog(/.*Emulator Hub running.*/, () => this.setStatus('Launch Complete'));
+
+		if (this.config.mongo)
+			commando.custom(`export MONGODB_EMULATOR_HOST=localhost:${this.resolveMongoPort()}`);
 
 		await this.executeAsyncCommando(commando, `${this.npmCommand('firebase')} emulators:start --project ${this.config.envConfig.projectId} --export-on-exit --import=${this.config.pathToEmulatorData} ${this.runtimeContext.runtimeParams.debugBackend
 			? `--inspect-functions ${this.config.debugPort}` : ''}`);

@@ -1,7 +1,8 @@
 import {addItemToArray, BadImplementationException, exists, flatArray, Logger, removeItemFromArray, timeCounter, TypedMap} from '@nu-art/ts-common';
 import {RunningStatusHandler} from '../runtime/RunningStatusHandler.js';
-import {Phase} from './definitions/index.js';
-import {BaseUnit} from '../units/index.js';
+import type {Phase} from './definitions/types.js';
+import {phaseKey_Test} from './definitions/consts.js';
+import {BaseUnit} from '../units/base/BaseUnit.js';
 import {PhaseAggregatedException} from '../exceptions/PhaseAggregatedException.js';
 import {UnitPhaseException} from '../exceptions/UnitPhaseException.js';
 
@@ -23,31 +24,31 @@ export type ExecutionStep = {
 
 /**
  * Manages phase execution across units in dependency order.
- * 
+ *
  * **Execution Model**:
  * - **Phase Groups**: Phases that can run in parallel (e.g., [prepare, compile])
  * - **Unit Layers**: Units grouped by dependency level (dependencies first)
  * - **Steps**: Combinations of phase groups × unit layers
- * 
+ *
  * **Execution Flow**:
  * 1. `calculateExecutionSteps()`: Plans which phases run on which units
  * 2. `execute()`: Executes steps sequentially, phases in parallel within steps
  * 3. Units in same layer run phases in parallel (Promise.all)
- * 
+ *
  * **Eligibility Rules**:
  * - Unit must implement the phase method (e.g., `compile()`, `test()`)
  * - Unit must be in active/project units (based on phase.unitCategory)
  * - Phase filter (if present) must pass runtime params
- * 
+ *
  * **Error Handling**:
  * - First failure stops execution (sets `killed = true`)
  * - Aggregates all errors into `PhaseAggregatedException`
  * - Tracks running units for graceful shutdown
- * 
+ *
  * **Resume Support**:
  * - Skips completed steps (via `runningStatus.startIndex`)
  * - Skips completed units within steps (via `runningStatus.isCompleted()`)
- * 
+ *
  * **Validation**:
  * - Constructor validates no duplicate units or phases
  * - Throws `BadImplementationException` on duplicates
@@ -96,7 +97,7 @@ export class PhaseManager
 
 	/**
 	 * Calculates the execution plan: which phases run on which units.
-	 * 
+	 *
 	 * **Algorithm**:
 	 * 1. For each phase group (phases that can run together)
 	 * 2. Filter phases by runtime params (if phase.filter exists)
@@ -104,14 +105,14 @@ export class PhaseManager
 	 * 4. Find units eligible for at least one phase in the group
 	 * 5. Group units by which phases they support
 	 * 6. Create steps: phase combinations × unit groups
-	 * 
+	 *
 	 * **Phase Grouping**: Units that support the same set of phases are grouped
 	 * together in a step (identified by phase keys joined with '|').
-	 * 
+	 *
 	 * **Unit Eligibility**:
 	 * - Unit must implement phase method
 	 * - Unit must be in active/project units (based on phase.unitCategory)
-	 * 
+	 *
 	 * @returns Array of scheduled steps (phases and unit keys)
 	 */
 	async calculateExecutionSteps(): Promise<ScheduledStep[]> {
@@ -128,8 +129,8 @@ export class PhaseManager
 				// A unit is eligible if it's eligible for at least one phase in the group
 				const eligibleUnitKeys = new Set<string>();
 				for (const phase of phaseGroup) {
-					const unitCategory = phase.unitCategory ?? "active";
-					const phaseEligibleKeys = unitCategory === "project" ? this.projectUnitKeys : this.activeUnits;
+					const unitCategory = phase.unitCategory ?? 'active';
+					const phaseEligibleKeys = unitCategory === 'project' ? this.projectUnitKeys : this.activeUnits;
 					phaseEligibleKeys.forEach(key => eligibleUnitKeys.add(key));
 				}
 
@@ -144,10 +145,10 @@ export class PhaseManager
 					const supportedPhases = phaseGroup.filter(phase => {
 						if (!(phase.method in unit && typeof unit[phase.method as keyof typeof unit] === 'function'))
 							return false;
-						
+
 						// Check if unit is eligible for this specific phase
-						const unitCategory = phase.unitCategory ?? "active";
-						const phaseEligibleKeys = unitCategory === "project" ? this.projectUnitKeys : this.activeUnits;
+						const unitCategory = phase.unitCategory ?? 'active';
+						const phaseEligibleKeys = unitCategory === 'project' ? this.projectUnitKeys : this.activeUnits;
 						return phaseEligibleKeys.includes(unit.config.key);
 					});
 					if (supportedPhases.length === 0)
@@ -179,30 +180,34 @@ export class PhaseManager
 
 	/**
 	 * Executes the planned steps sequentially.
-	 * 
+	 *
 	 * **Execution Model**:
 	 * - Steps run sequentially (one after another)
 	 * - Units within a step run phases in parallel (Promise.all)
 	 * - Phases for a unit run sequentially (in phase group order)
-	 * 
+	 *
 	 * **Resume Support**:
 	 * - Starts from `runningStatus.startIndex` (if --continue)
 	 * - Skips units marked as completed
-	 * 
+	 *
 	 * **Dry Run**: If `--dry-run`, only logs phase/unit names without executing.
-	 * 
+	 *
 	 * **Error Handling**:
 	 * - First error stops execution (sets `killed = true`)
 	 * - All errors aggregated into `PhaseAggregatedException`
 	 * - Running units tracked for graceful shutdown
-	 * 
+	 *
 	 * **Performance**: Logs operation duration if > 1.5 seconds.
-	 * 
+	 *
 	 * @param _steps - Scheduled steps to execute
 	 * @throws PhaseAggregatedException if any phase fails
 	 */
 	async execute(_steps: ScheduledStep[]) {
 		this.runningUnits = [];
+		const keepGoing = this.runningStatus.runtimeParams.keepGoing;
+		const allErrors: UnitPhaseException[] = [];
+		let firstFailedStep: ScheduledStep | undefined;
+
 		for (let i = this.runningStatus.startIndex; i < _steps.length; i++) {
 			if (this.killed)
 				break;
@@ -246,8 +251,17 @@ export class PhaseManager
 							this.logInfo(`Phase(${phase.name}) - Completed${operationDuration} - ${unit.config.key}`);
 						} catch (error: any) {
 							this.logError(`Phase(${phase.name}) - Error - ${unit.config.key}`, error);
-							errors.push(new UnitPhaseException(error, unit, phase.key));
-							failedStep = scheduledStep;
+							const unitError = new UnitPhaseException(error, unit, phase.key);
+							errors.push(unitError);
+							allErrors.push(unitError);
+							failedStep ??= scheduledStep;
+							firstFailedStep ??= scheduledStep;
+
+							if (keepGoing && phase.key === phaseKey_Test) {
+								failed = true;
+								break;
+							}
+
 							this.killed = true;
 							failed = true;
 							break;
@@ -260,22 +274,24 @@ export class PhaseManager
 				})
 			);
 
-			if (failedStep && errors.length) {
+			if (!keepGoing && failedStep && errors.length)
 				throw new PhaseAggregatedException(errors, failedStep);
-			}
 
 			await this.runningStatus.onStepEnded();
 		}
+
+		if (allErrors.length && firstFailedStep)
+			throw new PhaseAggregatedException(allErrors, firstFailedStep);
 
 		this.logInfo('All steps completed.');
 	}
 
 	/**
 	 * Gracefully stops execution and kills all running units.
-	 * 
+	 *
 	 * Called on SIGINT (Ctrl+C). Sets `killed = true` to stop further execution,
 	 * then calls `kill()` on all currently running units.
-	 * 
+	 *
 	 * @returns Promise that resolves when all units are killed
 	 */
 	break() {
@@ -285,14 +301,14 @@ export class PhaseManager
 
 	/**
 	 * Maps scheduled step (with string keys) to execution step (with actual instances).
-	 * 
+	 *
 	 * **Mapping Process**:
 	 * - Maps phase keys to Phase instances using `keyToPhaseMap`
 	 * - Maps unit keys to BaseUnit instances by searching through unit layers
-	 * 
+	 *
 	 * **Performance Note**: Unit lookup iterates through all layers (O(n) complexity).
 	 * Consider using a lookup map for O(1) access in large workspaces.
-	 * 
+	 *
 	 * @param scheduledStep - Scheduled step with phase/unit keys
 	 * @returns Execution step with phase/unit instances
 	 * @throws Error if phase or unit not found

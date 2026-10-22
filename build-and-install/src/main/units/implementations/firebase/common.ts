@@ -81,3 +81,21 @@ export async function ensureArtifactRegistryRepository(
 			throw new CommandoException(`Failed to create repository (exit code ${exitCode})`, stdout, stderr, exitCode);
 		});
 }
+
+/**
+ * Cloud Run region for a container deployment: `runRegion` when set, otherwise the Artifact Registry (image) region.
+ */
+export function resolveCloudRunRegion(containerDeployment: { runRegion?: string; artifactRegistry: { region: string } }): string {
+	return containerDeployment.runRegion || containerDeployment.artifactRegistry.region;
+}
+
+/**
+ * Default RTDB instance URL for FIREBASE_CONFIG.databaseURL, in the Cloud Run region (resolveCloudRunRegion):
+ * us-central1 -> https://<project>-default-rtdb.firebaseio.com, any other region ->
+ * https://<project>-default-rtdb.<region>.firebasedatabase.app
+ */
+export function resolveDatabaseURL(projectId: string, region: string): string {
+	if (region === 'us-central1')
+		return `https://${projectId}-default-rtdb.firebaseio.com`;
+	return `https://${projectId}-default-rtdb.${region}.firebasedatabase.app`;
+}

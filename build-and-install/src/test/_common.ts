@@ -1,12 +1,19 @@
 export * from '../main/runtime/RunningStatusHandler.js';
 
-export * from '../main/units/index.js';
-export * from '../main/phases/definitions/index.js';
+export * from '../main/units/base/BaseUnit.js';
+export * from '../main/units/base/ProjectUnit.js';
+export * from '../main/units/implementations/Unit_TypescriptLib.js';
+export * from '../main/units/implementations/Unit_PackageJson.js';
+export * from '../main/units/implementations/Unit_NodeProject.js';
+export * from '../main/units/base/types.js';
+export * from '../main/phases/definitions/types.js';
+export * from '../main/phases/definitions/consts.js';
 export * from '../main/phases/PhaseManager.js';
 
 export * from '../main/units/discovery/UnitsMapper.js';
 export * from '../main/units/implementations/firebase/Unit_FirebaseFunctionsApp.js';
 export * from '../main/units/implementations/firebase/Unit_FirebaseHostingApp.js';
+export * from '../main/units/implementations/firebase/Unit_ViteHostingApp.js';
 
 export * from '../main/units/discovery/resolvers/UnitMapper_Base.js';
 export * from '../main/units/discovery/resolvers/UnitMapper_Node.js';

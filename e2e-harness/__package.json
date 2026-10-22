@@ -1,6 +1,6 @@
 {
 	"name": "@nu-art/e2e-harness",
-	"version": "$THUNDERSTORM_VERSION",
+	"version": "{{THUNDERSTORM_VERSION}}",
 	"description": "Abstract programmatic bootstrap for product E2E stacks (backend + emulators + health gates)",
 	"type": "module",
 	"keywords": [

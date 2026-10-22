@@ -1,29 +1,32 @@
 import {TS_PackageJSON} from '../types.js';
 import {
-	_keys,
 	AbsolutePath,
-	deepClone,
 	RelativePath,
-	StringMap,
-	tsValidate,
 	tsValidateBoolean,
 	tsValidateOptionalAnyString,
 	tsValidateResult,
 	TypeValidator,
 	ValidatorTypeResolver
 } from '@nu-art/ts-common';
-import {BaseUnit} from '../../index.js';
-import {FilesCache} from '../../../core/FilesCache.js';
+import {BaseUnit} from '../../base/BaseUnit.js';
+import {loadJsonWithTemplateParams} from '../../../core/template-params.js';
 import {BaseUnitConfig, UnitConfigJSON_Base, UnitMapper_Base} from './UnitMapper_Base.js';
 import {FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
+import {Unit_PackageJson} from '../../implementations/Unit_PackageJson.js';
 
 
 export type UnitConfigJSON_Node = UnitConfigJSON_Base & {
 	label: string
+	/** Build output directory. Replaces the non-standard publishConfig.directory. */
+	output?: string
 	customESLintConfig?: boolean
 	customTSConfig?: boolean
 	hasSelfHotReload?: boolean
 };
+
+export function resolvePackageOutputDir(packageJson: {unitConfig?: {output?: string}, publishConfig?: {directory?: string}}): string | undefined {
+	return packageJson.unitConfig?.output ?? packageJson.publishConfig?.directory;
+}
 
 export type UnitMapper_NodeContext<ConfigJSON extends UnitConfigJSON_Node = UnitConfigJSON_Node> = {
 	path: string,
@@ -42,6 +45,7 @@ export abstract class UnitMapper_Node<
 	private static invalidPaths: string[] = [];
 	static tsValidator_Node = {
 		label: tsValidateOptionalAnyString,
+		output: tsValidateOptionalAnyString,
 		customESLintConfig: tsValidateBoolean(false),
 		customTSConfig: tsValidateBoolean(false),
 		hasSelfHotReload: tsValidateBoolean(false),
@@ -61,7 +65,7 @@ export abstract class UnitMapper_Node<
 
 		let packageJson: TS_PackageJSON<ConfigJSON>;
 		try {
-			packageJson = await FilesCache.load.json<TS_PackageJSON<ConfigJSON>>(pathToFile);
+			packageJson = await loadJsonWithTemplateParams<TS_PackageJSON<ConfigJSON>>(pathToFile, this.templateParams);
 
 			if (!packageJson)
 				return;
@@ -76,22 +80,10 @@ export abstract class UnitMapper_Node<
 			if (tsValidateResult(packageJson.unitConfig.type, this.validator.type))
 				return; // not the expected type for this mapper
 
-			packageJson = deepClone(packageJson);
-			tsValidate(packageJson.unitConfig, this.validator as ValidatorTypeResolver<ConfigJSON>);
+			packageJson = Unit_PackageJson.transformDependencyPlaceholders(packageJson);
+			const configValidationResult = tsValidateResult(packageJson.unitConfig, this.validator as ValidatorTypeResolver<ConfigJSON>, undefined, false);
+
 			const dependencies = packageJson.dependencies;
-			if (dependencies)
-				packageJson.dependencies = _keys(dependencies).reduce<StringMap>((acc, key) => {
-					acc[key] = dependencies[key] === '?' ? `{{${key}}}` : dependencies[key];
-					return acc;
-				}, {});
-
-			const devDependencies = packageJson.devDependencies;
-			if (devDependencies)
-				packageJson.devDependencies = _keys(devDependencies).reduce<StringMap>((acc, key) => {
-					acc[key] = devDependencies[key] === '?' ? `{{${key}}}` : devDependencies[key];
-					return acc;
-				}, {});
-
 			Object.freeze(packageJson);
 
 			const baseConfig: BaseUnitConfig = {
@@ -104,7 +96,11 @@ export abstract class UnitMapper_Node<
 
 			const customESLintConfig = packageJson.unitConfig.customESLintConfig ?? false;
 			const customTSConfig = packageJson.unitConfig.customTSConfig ?? false;
-			return this.resolveNodeUnit({path, root, packageJson, baseConfig, customESLintConfig, customTSConfig});
+			const unit = await this.resolveNodeUnit({path, root, packageJson, baseConfig, customESLintConfig, customTSConfig});
+			if (unit instanceof Unit_PackageJson)
+				unit.configValidationResult = configValidationResult;
+
+			return unit;
 		} catch (e: any) {
 			this.logError(`Failed to load package.json at: ${pathToFile}`, e);
 			throw e;

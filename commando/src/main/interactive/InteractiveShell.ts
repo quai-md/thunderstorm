@@ -184,11 +184,10 @@ export class InteractiveShell
 	};
 
 // Poll until a PID is no longer alive or timeout is hit
-	waitForExit = (pid: number, timeout = 20000, sampleInterval = 100): Promise<void> => {
+	waitForExit = (pid: number, timeout = 10000, sampleInterval = 100): Promise<void> => {
 		const startTime = currentTimeMillis();
 
 		return new Promise((resolve, reject) => {
-			this.logInfo(`Killing process (${pid}-${timeout}/${sampleInterval})`);
 			const check = () => {
 				if (!this.isAlive(pid))
 					return resolve();

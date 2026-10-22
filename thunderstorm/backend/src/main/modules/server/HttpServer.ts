@@ -31,6 +31,7 @@ import * as fs from 'fs';
 import {addItemToArray, LogLevel, Module} from '@nu-art/ts-common';
 import express from 'express';
 
+import {HeaderKey_DeviceId, HeaderKey_TabId} from '@nu-art/thunderstorm-shared/headers';
 import {Express, ExpressRequest, ExpressRequestHandler, ExpressResponse, HttpErrorHandler} from '../../utils/types.js';
 import {DefaultApiErrorMessageComposer} from './server-errors.js';
 import {Firebase_ExpressFunction, TBR_ExpressFunctionInterface} from '@nu-art/firebase-backend/v1';
@@ -49,7 +50,10 @@ const ALL_Methods: string[] = [
 
 const DefaultHeaders: string[] = [
 	'content-type',
-	'content-encoding',];
+	'content-encoding',
+	HeaderKey_TabId,
+	HeaderKey_DeviceId,
+];
 
 type ConfigType = {
 	port: number;
@@ -131,8 +135,10 @@ export class HttpServer_Class
 		});
 
 		const parserLimit = this.config.bodyParserLimit;
-		if (parserLimit) {
-			const jsonParser = express.json({limit: parserLimit, type: 'application/json'});
+		// A bare number is kilobytes. 200 in config is 200kb, not 200 bytes.
+		const limit = typeof parserLimit === 'number' ? `${parserLimit}kb` : parserLimit;
+		if (limit) {
+			const jsonParser = express.json({limit, type: 'application/json'});
 
 			this.getExpress().use((req, res, next) => {
 				// If upstream already set a body OR the stream is already consumed, skip parsing.
