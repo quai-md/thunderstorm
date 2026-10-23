@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/build-and-install",
-  "version": "$THUNDERSTORM_VERSION",
+  "version": "{{THUNDERSTORM_VERSION}}",
   "description": "A build system for monorepos that orchestrates building, testing, and deploying units with dependency-aware phase execution",
   "type": "module",
   "keywords": [
@@ -20,12 +20,9 @@
   "bugs": {
     "url": "https://github.com/nu-art-js/thunderstorm/issues?q=is%3Aissue+label%3Abuild-and-install"
   },
-  "publishConfig": {
-    "directory": "dist"
-  },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com:nu-art-js/thunderstorm.git",
+    "url": "git+ssh://git@github.com/nu-art-js/thunderstorm.git",
     "directory": "_thunderstorm/build-and-install"
   },
   "license": "Apache-2.0",
@@ -34,8 +31,7 @@
     "**/*"
   ],
   "scripts": {
-    "build": "tsc",
-    "plop": "npm run plop --prefix ../.."
+    "plop": "npm run plop --prefix ../../.."
   },
   "dependencies": {
     "chokidar": "^3.6.0",
@@ -46,7 +42,9 @@
   "devDependencies": {
     "@nu-art/testalot": "?"
   },
+  "publishConfig": {"directory": "dist", "linkDirectory": true},
   "unitConfig": {
+    "output": "dist",
     "type": "typescript-lib"
   },
   "exports": {

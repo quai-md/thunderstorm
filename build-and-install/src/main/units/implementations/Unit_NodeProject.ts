@@ -17,12 +17,14 @@ import {Unit_TypescriptLib} from './Unit_TypescriptLib.js';
 import {Commando_NVM, Commando_PNPM, CommandoException, PNPM} from '@nu-art/commando';
 import {Unit_PackageJson, Unit_PackageJson_Config} from './Unit_PackageJson.js';
 import {resolve} from 'path';
+import {existsSync} from 'fs';
 import {Config_ProjectUnit, ProjectUnit} from '../base/ProjectUnit.js';
 import {PhaseManager} from '../../phases/PhaseManager.js';
-import {phase_CompileWatch, Phase_IndicesMcpServer, Phase_Install, Phase_PostPublish, phase_PrepareWatch, Phase_Watch} from '../../phases/definitions/index.js';
+import type {Phase} from '../../phases/definitions/types.js';
+import {phase_CompileWatch, phase_InstallWatch, Phase_IndicesMcpServer, Phase_Install, Phase_InstallWatch, Phase_PostPublish, phase_PrepareWatch, Phase_Watch} from '../../phases/definitions/consts.js';
 import {UnitsDependencyMapper} from '../../dependencies/UnitsDependencyMapper.js';
 import {BaseUnit} from '../base/BaseUnit.js';
-import {CONST_PNPM_LOCK, CONST_PNPM_WORKSPACE} from '../../config/consts.js';
+import {CONST_PackageJSONTemplate, CONST_PNPM_LOCK, CONST_PNPM_WORKSPACE, CONST_TrashDir} from '../../config/consts.js';
 import {RunningStatusHandler} from '../../runtime/RunningStatusHandler.js';
 import {FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
 import {IndicesMcpServer} from '../../exports/IndicesMcpServer.js';
@@ -68,7 +70,7 @@ type PathDeclaration = { fullPath: string, paths: string[], unit: Unit_Typescrip
  */
 export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_TypescriptProject_Config>
 	extends Unit_PackageJson<C>
-	implements UnitPhaseImplementor<[Phase_Install, Phase_Watch, Phase_PostPublish, Phase_IndicesMcpServer]> {
+	implements UnitPhaseImplementor<[Phase_Install, Phase_InstallWatch, Phase_Watch, Phase_PostPublish, Phase_IndicesMcpServer]> {
 
 	private watcher?: FSWatcher;
 	readonly innerUnits: Unit_PackageJson[] = [];
@@ -112,11 +114,13 @@ export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_Typ
 		// Using phase runner instance to resolve all project libs to watch
 		const projectLibs = this.innerUnits.filter(unit => unit.isInstanceOf(Unit_TypescriptLib) && !(unit as Unit_TypescriptLib).config.hasSelfHotReload) as Unit_TypescriptLib[];
 
-		//return all paths to watch
 		return projectLibs.map(lib => {
 			const sourceFolder = `${lib.config.fullPath}/src/main`;
 			return {
-				paths: this.suffixesToWatch.map(suffix => `${sourceFolder}/**/*.${suffix}`),
+				paths: [
+					...this.suffixesToWatch.map(suffix => `${sourceFolder}/**/*.${suffix}`),
+					`${lib.config.fullPath}/${CONST_PackageJSONTemplate}`,
+				],
 				unit: lib,
 				fullPath: lib.config.fullPath
 			};
@@ -148,11 +152,26 @@ export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_Typ
 
 		const commando = this.allocateCommando(Commando_NVM, Commando_PNPM)
 			.cd(this.config.fullPath)
-			.append(`pnpm store prune`);
+			.append(`${this.pnpmCommand()} store prune`);
 
-		await this.executeAsyncCommando(commando, `pnpm install -f --no-frozen-lockfile --prefer-offline false`, (stdout, stderr, exitCode) => {
+		await this.executeAsyncCommando(commando, `${this.pnpmCommand()} install -f --no-frozen-lockfile --prefer-offline false`, (stdout, stderr, exitCode) => {
 			if (exitCode !== 0)
 				throw new CommandoException(`Error installing packages`, stdout, stderr, exitCode);
+		});
+	}
+
+	async watchInstall(): Promise<void> {
+		const units = this.innerUnits.filter(unit => unit.isInstanceOf(Unit_TypescriptLib)) as Unit_TypescriptLib[];
+		const packages = units.map(unit => unit.config.relativePath);
+		if (packages.length > 0)
+			await PNPM.createWorkspace(packages, this.config.fullPath);
+
+		const commando = this.allocateCommando(Commando_NVM, Commando_PNPM)
+			.cd(this.config.fullPath);
+
+		await this.executeAsyncCommando(commando, `${this.pnpmCommand()} i --no-frozen-lockfile`, (stdout, stderr, exitCode) => {
+			if (exitCode !== 0)
+				throw new CommandoException('Error installing packages during watch', stdout, stderr, exitCode);
 		});
 	}
 
@@ -173,6 +192,7 @@ export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_Typ
 
 			const units: Set<Unit_TypescriptLib> = new Set();
 			const pathsToDelete: { path: string, unit: Unit_TypescriptLib }[] = [];
+			let needsInstall = false;
 
 			const onUnitChange = (path: string) => {
 				const unit = this.findUnit(pathDeclarations, path as AbsolutePath);
@@ -180,12 +200,13 @@ export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_Typ
 				if (path.match(new RegExp(filesToIgnore.join('|'))))
 					return;
 
+				if (path.endsWith(CONST_PackageJSONTemplate))
+					needsInstall = true;
+
 				// @ts-ignore - FIXME: should be a better way
 				unit.setStatus('Dirty');
 
-				//add unit to set
 				units.add(unit);
-
 
 				return unit;
 			};
@@ -213,9 +234,11 @@ export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_Typ
 				const _pathsToDelete = [...pathsToDelete];
 				const unitsToCompile = Array.from(units.values());
 				let unitDependencyTree: BaseUnit[][] = [unitsToCompile];
+				const _needsInstall = needsInstall;
 				// clear values in order to start collecting values for next debounce
 				pathsToDelete.length = 0;
 				units.clear();
+				needsInstall = false;
 
 				// fire all delete events
 				await Promise_all_sequentially(_pathsToDelete.map(path => {
@@ -252,8 +275,16 @@ export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_Typ
 				};
 
 				const activeUnitKeys = this.runtimeContext.childUnits.map(unit => unit.config.key);
+				const phases: Phase<any>[][] = _needsInstall
+					? [[phase_PrepareWatch], [phase_InstallWatch], [phase_CompileWatch]]
+					: [[phase_PrepareWatch], [phase_CompileWatch]];
+
+				if (_needsInstall)
+					unitDependencyTree.push([this]);
+
+				const allUnitKeys = _needsInstall ? [...activeUnitKeys, this.config.key] : activeUnitKeys;
 				const phaseManager = new PhaseManager(new RunningStatusHandler(this.config.fullPath, watchRuntimeParams).isolate(),
-					[[phase_PrepareWatch], [phase_CompileWatch]], unitDependencyTree, activeUnitKeys, activeUnitKeys);
+					phases, unitDependencyTree, allUnitKeys, allUnitKeys);
 
 				// @ts-ignore
 				phaseManager.setTag('PhaseManager-Watcher');
@@ -340,6 +371,18 @@ export class Unit_NodeProject<C extends Unit_TypescriptProject_Config = Unit_Typ
 		await FileSystemUtils.file.delete(resolve(this.config.fullPath, CONST_PNPM_LOCK));
 		await FileSystemUtils.file.delete(resolve(this.config.fullPath, CONST_PNPM_WORKSPACE));
 		return super.purge();
+	}
+
+	/**
+	 * The repo's pnpm (node_modules/.bin/pnpm when present, else the one the bootstrap put on PATH),
+	 * pinned to a repo-local store so `store prune` and install never touch the global store.
+	 * BAI_PNPM_STORE_DIR overrides the store location.
+	 */
+	private pnpmCommand() {
+		const repoPnpm = resolve(this.config.fullPath, 'node_modules/.bin/pnpm');
+		const pnpm = existsSync(repoPnpm) ? repoPnpm : 'pnpm';
+		const storeDir = process.env.BAI_PNPM_STORE_DIR || resolve(this.config.fullPath, CONST_TrashDir, 'pnpm-store');
+		return `"${pnpm}" --store-dir "${storeDir}"`;
 	}
 
 	async postPublish() {

@@ -5,12 +5,15 @@ import {
 	AsyncVoidFunction,
 	BeLogged,
 	Constructor,
+	currentTimeMillis,
 	exists,
 	lastElement,
 	LogClient_MemBuffer,
 	Logger,
 	LogLevel,
 	removeItemFromArray,
+	sleep,
+	StringMap,
 	TimeCounter,
 	timeCounter
 } from '@nu-art/ts-common';
@@ -19,7 +22,7 @@ import {BaseCommando} from '@nu-art/commando';
 import {MergeTypes} from '@nu-art/commando';
 import {CommandoPool} from '@nu-art/commando';
 import {Commando_Basic} from '@nu-art/commando';
-import {BAI_Config} from '../../config/types/index.js';
+import {BAI_Config} from '../../config/types/project-config.js';
 import {UnitsDependencyMapper} from '../../dependencies/UnitsDependencyMapper.js';
 import {BaiParams} from '../../core/params.js';
 import {Workspace} from '../../workspace/Workspace.js';
@@ -36,12 +39,13 @@ export type BaseUnit_Config = {
 
 /**
  * Runtime context provided to all units during execution.
- * 
+ *
  * Contains version, config, dependency mapper, runtime params, and workspace reference.
  */
 export type UnitRuntimeContext = {
 	version: string
 	baiConfig: Readonly<BAI_Config>,
+	templateParams: StringMap
 	unitsMapper: UnitsDependencyMapper,
 	unitsResolver: <Class extends BaseUnit>(keys: string[], className: Constructor<Class>) => Class[],
 	runtimeParams: BaiParams
@@ -51,23 +55,23 @@ export type UnitRuntimeContext = {
 
 /**
  * Base class for all units in the build system.
- * 
+ *
  * **Unit Lifecycle**:
  * 1. **Discovery**: Units are discovered by UnitsMapper from file system
  * 2. **Initialization**: Constructor sets up config and logging
  * 3. **Context Setup**: `setupRuntimeContext()` provides runtime information
  * 4. **Phase Execution**: Phases call unit methods (e.g., `compile()`, `test()`)
  * 5. **Termination**: `kill()` stops all running processes
- * 
+ *
  * **Key Features**:
  * - **Commando Integration**: Allocates Commando instances for shell commands
  * - **Process Management**: Tracks and kills subprocesses on termination
  * - **Logging**: Buffered logging with status tracking
  * - **Time Tracking**: Measures operation duration
- * 
+ *
  * **Phase Methods**: Units implement phase methods (e.g., `prepare()`, `compile()`, `test()`)
  * that are called by PhaseManager. Methods are discovered via reflection.
- * 
+ *
  * **Status Tracking**: Units track their status ('Pending Initialization', 'Running', etc.)
  * for monitoring and debugging.
  */
@@ -80,6 +84,7 @@ export abstract class BaseUnit<C extends BaseUnit_Config = BaseUnit_Config, RT_C
 	private readonly classStack: string[] = [];
 	private processTerminator: AsyncVoidFunction[] = [];
 	private timeCounter?: TimeCounter;
+	private terminating = false;
 	protected runtimeContext!: RT_Context;
 
 	protected constructor(config: C) {
@@ -101,18 +106,41 @@ export abstract class BaseUnit<C extends BaseUnit_Config = BaseUnit_Config, RT_C
 		removeItemFromArray(this.processTerminator, terminatable);
 	}
 
+	/**
+	 * Whether this unit is being torn down (kill() was invoked). Long-running
+	 * loops (e.g. a node-watch restart loop) must poll this to break out.
+	 */
+	protected shouldStop = (): boolean => this.terminating;
+
+	/**
+	 * Sleeps for `ms`, returning early the moment the unit starts terminating —
+	 * so a restart/back-off delay never swallows an interrupt.
+	 */
+	protected async interruptibleSleep(ms: number, sampleInterval = 100): Promise<void> {
+		const deadline = currentTimeMillis() + ms;
+		while (currentTimeMillis() < deadline) {
+			if (this.terminating)
+				return;
+
+			await sleep(Math.min(sampleInterval, deadline - currentTimeMillis()));
+		}
+	}
+
 	allocateCommando<T extends Constructor<any>[]>(...plugins: T): MergeTypes<[...T]> & CommandoInteractive & BaseCommando & Commando_Basic {
 		return CommandoPool.allocateCommando(this.config.key, ...plugins);
 	}
 
-	async executeAsyncCommando<T>(commando: CommandoInteractive, command: string, callback?: (stdout: string, stderr: string, exitCode: number) => T) {
+	async executeAsyncCommando<T>(commando: CommandoInteractive, command: string, callback?: (stdout: string, stderr: string, exitCode: number) => T, onPid?: (pid: number) => void) {
 		let pid: number;
 
 		const terminatable = () => commando.killSubprocess(pid);
 		try {
 			this.registerTerminatable(terminatable);
 			return await commando
-				.appendAsync(command, _pid => pid = _pid)
+				.appendAsync(command, _pid => {
+					pid = _pid;
+					onPid?.(_pid);
+				})
 				.execute(callback);
 		} finally {
 			this.unregisterTerminatable(terminatable);
@@ -190,6 +218,8 @@ export abstract class BaseUnit<C extends BaseUnit_Config = BaseUnit_Config, RT_C
 	}
 
 	public async kill() {
+		this.terminating = true;
+
 		if (!this.processTerminator.length)
 			return this.setStatus('Killed');
 

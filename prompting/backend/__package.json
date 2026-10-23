@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/prompting-backend",
-  "version": "$THUNDERSTORM_VERSION",
+  "version": "{{THUNDERSTORM_VERSION}}",
   "description": "Prompting backend module for AI prompt entities",
   "keywords": [
     "TacB0sS",

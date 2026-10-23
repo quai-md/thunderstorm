@@ -28,9 +28,10 @@ import {createServer as createHttpServer, Server} from 'http';
 import {createServer as createHttpsServer} from 'https';
 import {Socket} from 'net';
 import * as fs from 'fs';
-import {addItemToArray, LogLevel, Module} from '@nu-art/ts-common';
+import {addItemToArray, ImplementationMissingException, LogLevel, Module} from '@nu-art/ts-common';
 import express from 'express';
 
+import {HeaderKey_DeviceId, HeaderKey_TabId} from '@nu-art/thunderstorm-shared/headers';
 import {Express, ExpressRequest, ExpressRequestHandler, ExpressResponse, HttpErrorHandler} from '../../utils/types.js';
 import {DefaultApiErrorMessageComposer} from './server-errors.js';
 import {Firebase_ExpressFunction, TBR_ExpressFunctionInterface} from '@nu-art/firebase-backend/v1';
@@ -49,7 +50,10 @@ const ALL_Methods: string[] = [
 
 const DefaultHeaders: string[] = [
 	'content-type',
-	'content-encoding',];
+	'content-encoding',
+	HeaderKey_TabId,
+	HeaderKey_DeviceId,
+];
 
 type ConfigType = {
 	port: number;
@@ -131,8 +135,10 @@ export class HttpServer_Class
 		});
 
 		const parserLimit = this.config.bodyParserLimit;
-		if (parserLimit) {
-			const jsonParser = express.json({limit: parserLimit, type: 'application/json'});
+		// A bare number is kilobytes. 200 in config is 200kb, not 200 bytes.
+		const limit = typeof parserLimit === 'number' ? `${parserLimit}kb` : parserLimit;
+		if (limit) {
+			const jsonParser = express.json({limit, type: 'application/json'});
 
 			this.getExpress().use((req, res, next) => {
 				// If upstream already set a body OR the stream is already consumed, skip parsing.
@@ -207,6 +213,16 @@ export class HttpServer_Class
 		});
 	}
 
+	private readLocalSslFile(filePath: string, label: 'key' | 'cert'): string {
+		if (filePath.startsWith('-----BEGIN'))
+			return filePath;
+
+		if (!fs.existsSync(filePath))
+			throw new ImplementationMissingException(`Local HTTPS ${label} file is missing: ${filePath}`);
+
+		return fs.readFileSync(filePath, 'utf8');
+	}
+
 	private createServer(): Server {
 		const ssl = this.config.ssl;
 		if (!ssl) {
@@ -215,13 +231,8 @@ export class HttpServer_Class
 		}
 
 		this.logDebug('starting HTTPS server');
-		let key = ssl.key;
-		if (!ssl.key.startsWith('-----BEGIN'))
-			key = fs.readFileSync(ssl.key, 'utf8');
-
-		let cert = ssl.cert;
-		if (!ssl.cert.startsWith('-----BEGIN'))
-			cert = fs.readFileSync(ssl.cert, 'utf8');
+		const key = this.readLocalSslFile(ssl.key, 'key');
+		const cert = this.readLocalSslFile(ssl.cert, 'cert');
 
 		const options = {
 			key: key,

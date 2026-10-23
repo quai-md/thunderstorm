@@ -135,7 +135,6 @@ export class BucketWrapper {
 
 export class FileWrapper {
 
-	static emulatorStorageProxy: string;
 	readonly file: File;
 	readonly path: string;
 	readonly bucket: BucketWrapper;
@@ -154,15 +153,6 @@ export class FileWrapper {
 			contentType: contentType,
 			expires: currentTimeMillis() + expiresInMs,
 		};
-
-		if (this.isEmulator) {
-			const signedUrl = `${(FileWrapper.emulatorStorageProxy)}/emulatorUpload?path=${encodeURIComponent(this.path)}`;
-
-			return {
-				fileName: this.path,
-				signedUrl: signedUrl,
-			};
-		}
 
 		return this.getSignedUrl(options);
 	}

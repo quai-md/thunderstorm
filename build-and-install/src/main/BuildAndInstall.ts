@@ -10,24 +10,33 @@ import {
 	merge
 } from '@nu-art/ts-common';
 import {AllBaiParams, BaiParams} from './core/params.js';
-import {Phase, phases_Build, phases_Deploy, phases_Launch, phases_Terminating} from './phases/definitions/index.js';
+import {phase_Help, Unit_HelpPrinter} from './core/Unit_HelpPrinter.js';
+import type {Phase} from './phases/definitions/types.js';
+import {phases_Build, phases_Deploy, phases_Launch, phases_Terminating} from './phases/definitions/consts.js';
 import {UnitsMapper} from './units/discovery/UnitsMapper.js';
 import {FilesCache} from './core/FilesCache.js';
-import {BAI_Config} from './config/types/index.js';
+import {BAI_Config} from './config/types/project-config.js';
 import {ProjectUnit, ProjectUnit_RuntimeContext} from './units/base/ProjectUnit.js';
 import {PhaseManager} from './phases/PhaseManager.js';
-import {BaseUnit, Unit_NodeProject} from './units/index.js';
+import {BaseUnit} from './units/base/BaseUnit.js';
+import {Unit_NodeProject} from './units/implementations/Unit_NodeProject.js';
 import {Workspace} from './workspace/Workspace.js';
 import {resolve} from 'path';
 import {CONST_BaiConfig, CONST_NodeModules, CONST_VersionApp} from './config/consts.js';
-import {UnitMapper_FirebaseFunction, UnitMapper_FirebaseHosting, UnitMapper_NodeLib, UnitMapper_NodeProject} from './units/discovery/resolvers/index.js';
+import {UnitMapper_FirebaseFunction} from './units/discovery/resolvers/UnitMapper_FirebaseFunction.js';
+import {UnitMapper_FirebaseHosting} from './units/discovery/resolvers/UnitMapper_FirebaseHosting.js';
+import {UnitMapper_NodeLib} from './units/discovery/resolvers/UnitMapper_NodeLib.js';
+import {UnitMapper_NodeProject} from './units/discovery/resolvers/UnitMapper_NodeProject.js';
+import {UnitMapper_ViteHosting} from './units/discovery/resolvers/UnitMapper_ViteHosting.js';
 import {CLIParamsResolver} from '@nu-art/cli-params';
 import {BaseCliParam} from '@nu-art/cli-params';
 import {RunningStatusHandler} from './runtime/RunningStatusHandler.js';
 import {FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
+import {resolveBaiTemplateParams} from './core/template-params.js';
 
 
 export const DefaultPhases = [
+	[phase_Help],
 	...phases_Build,
 	...phases_Terminating,
 	...phases_Launch,
@@ -88,6 +97,7 @@ export class BuildAndInstall
 			.addRules(UnitMapper_NodeLib)
 			.addRules(UnitMapper_NodeProject)
 			.addRules(UnitMapper_FirebaseHosting)
+			.addRules(UnitMapper_ViteHosting)
 			.addRules(UnitMapper_FirebaseFunction)
 			.setRuntimeParams(this.runtimeParams);
 	}
@@ -134,6 +144,16 @@ export class BuildAndInstall
 	async build() {
 		await this.init();
 
+		this.workspace.addProjectUnits([Unit_HelpPrinter]);
+
+		const pathToBaiConfig = resolve(this.pathToProject, CONST_BaiConfig);
+		this.logDebug(`Loading BAI-Config from: ${pathToBaiConfig}`);
+		const baiConfig = await FilesCache.load.json<BAI_Config>(pathToBaiConfig);
+		this.logVerbose('Loaded BAI-Config', baiConfig);
+		const templateParams = resolveBaiTemplateParams(baiConfig);
+		this.unitsMapper.setConfig(baiConfig);
+		this.unitsMapper.setTemplateParams(templateParams);
+
 		// Scan units from workspace
 		await this.workspace.scanUnits(this.pathToProject, this.unitsMapper);
 
@@ -143,11 +163,6 @@ export class BuildAndInstall
 
 		// @ts-ignore
 		this['nodeProjectUnit'] = nodeProjectUnit;
-
-		const pathToBaiConfig = resolve(nodeProjectUnit.config.fullPath, CONST_BaiConfig);
-		this.logDebug(`Loading BAI-Config from: ${pathToBaiConfig}`);
-		const baiConfig = await FilesCache.load.json<BAI_Config>(pathToBaiConfig);
-		this.logVerbose('Loaded BAI-Config', baiConfig);
 
 		const globalOutputFolder = resolve(this.pathToProject, '.trash/output');
 		this.workspace.initializeDependencyMapper(globalOutputFolder);
@@ -172,6 +187,7 @@ export class BuildAndInstall
 			parentUnit: nodeProjectUnit,
 			childUnits: childProjectUnits,
 			baiConfig,
+			templateParams,
 			runtimeParams: this.runtimeParams,
 			unitsMapper: this.workspace.getDependencyMapper(),
 			unitsResolver: <Class extends BaseUnit>(keys: string[], className: Constructor<Class>): Class[] => {

@@ -138,7 +138,7 @@ export const BaiParam_Test: BaseCliParam<'test', boolean> = {
 	description: 'Run the tests in all the project packages',
 };
 
-export const TestTypes = ['pure', 'firebase', 'ui', 'mobile'];
+export const TestTypes = ['pure', 'firebase', 'ui', 'mobile', 'playwright'];
 export type TestType = typeof TestTypes[number];
 export const BaiParam_TestType: BaseCliParam<'testType', TestType[]> = {
 	keys: ['--test-type', '-tt'],
@@ -178,6 +178,15 @@ export const BaiParam_TestDebugPort: BaseCliParam<'testDebugPort', number> = {
 	group: 'Test',
 	defaultValue: 8010,
 	description: 'If provided will allow a debugger connection on the specified port, and will run the tests in watch mode',
+	dependencies: [{param: BaiParam_Test, value: true}],
+};
+
+export const BaiParam_KeepGoing: BaseCliParam<'keepGoing', boolean> = {
+	keys: ['--keep-going', '-kg'],
+	keyName: 'keepGoing',
+	type: 'boolean',
+	group: 'Test',
+	description: 'When running tests, continue testing remaining packages even if a package\'s tests fail. All failures are reported at the end.',
 	dependencies: [{param: BaiParam_Test, value: true}],
 };
 
@@ -338,7 +347,7 @@ export const BaiParam_Publish: BaseCliParam<'publish', PromoteType> = {
 };
 
 export const BaiParam_UsePackage: BaseCliParam<'usePackage', string[]> = {
-	keys: ['-up', '--use-packages'],
+	keys: ['-up', '--use-package'],
 	keyName: 'usePackage',
 	type: 'string[]',
 	group: 'Other',
@@ -449,6 +458,15 @@ export const BaiParam_IndicesMcpPort: BaseCliParam<'indicesMcpPort', number> = {
 	dependencies: [{param: BaiParam_IndicesMcpServer, value: true}]
 };
 
+export const BaiParam_Help: BaseCliParam<'help', boolean> = {
+	keys: ['--help', '-h'],
+	keyName: 'help',
+	type: 'boolean',
+	group: 'General',
+	description: 'This help menu',
+	dependencies: [{param: BaiParam_NoBuild, value: true}, {param: BaiParam_Prepare, value: false}, {param: BaiParam_AllUnits, value: true}],
+};
+
 export const AllBaiParams = [
 	BaiParam_AllUnits,
 	BaiParam_DependencyTree,
@@ -473,6 +491,7 @@ export const AllBaiParams = [
 	BaiParam_TestFile,
 	BaiParam_TestCase,
 	BaiParam_TestDebugPort,
+	BaiParam_KeepGoing,
 	BaiParam_Launch,
 	BaiParam_Deploy,
 	BaiParam_BuildPushImage,
@@ -493,7 +512,8 @@ export const AllBaiParams = [
 	BaiParam_MapExports,
 	BaiParam_IndicesMcpServer,
 	BaiParam_IndicesMcpPort,
-	BaiParam_DebugLifecycle
+	BaiParam_DebugLifecycle,
+	BaiParam_Help,
 ];
 
 export type BaiParams = CliParams<typeof AllBaiParams>;

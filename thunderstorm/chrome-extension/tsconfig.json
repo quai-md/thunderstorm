@@ -17,6 +17,9 @@
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
     "noUnusedLocals": true,
-    "strict": true
+    "strict": true,
+    "types": ["*"],
+    "skipLibCheck": true,
+    "noUncheckedSideEffectImports": false
   }
 }

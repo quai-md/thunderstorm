@@ -8,7 +8,7 @@ import {resolve} from 'path';
 import {existsSync, readFileSync} from 'fs';
 import {expect} from 'chai';
 import {CONST_DeployHostingDir, CONST_DeploymentId, CONST_DeploymentMetadata, CONST_TrashDir} from '../../../main/config/consts.js';
-import {CONST_TestFixture_HostingHello} from './test-consts.js';
+import {CONST_TestFixture_HostingHello, describeLiveDeploy} from './test-consts.js';
 import {TestWorkspaceCreator} from '@nu-art/ts-common/testing/workspace-creator';
 import {CommandoPool} from '@nu-art/commando';
 import {BuildAndInstall} from '../../../main/build-and-install-v3.js';
@@ -111,7 +111,7 @@ type TestCase_DeployHosting = TestModel<Input, Output>;
 
 const runTestCase = (testCase: TestCase_DeployHosting, processor?: typeof defaultTestProcessor) => () => runSingleTestCase(test, testCase, processor);
 
-describe('Firebase Deploy Hosting Phase', () => {
+describeLiveDeploy('Firebase Deploy Hosting Phase', () => {
 	let suiteHasFailures: boolean | undefined;
 
 	before(async function () {
@@ -160,7 +160,7 @@ describe('Firebase Deploy Hosting Phase', () => {
 			hostingUnit.logDebug('=== Verifying hosting URLs were captured ===');
 			expect(hostingUnit.hosting).to.exist;
 			expect(Object.keys(hostingUnit.hosting).length).to.be.greaterThan(0);
-			
+
 			const hostingUrl = Object.keys(hostingUnit.hosting)[0];
 			expect(hostingUrl).to.include('https://');
 
@@ -169,7 +169,7 @@ describe('Firebase Deploy Hosting Phase', () => {
 			const deployTempDir = resolve(hostingUnit.config.fullPath, `${CONST_TrashDir}/${CONST_DeployHostingDir}`);
 			const metadataPath = resolve(deployTempDir, CONST_DeploymentMetadata);
 			expect(existsSync(metadataPath)).to.be.true;
-			
+
 			const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'));
 			const deploymentId = metadata[CONST_DeploymentId];
 			expect(deploymentId).to.exist;
@@ -181,7 +181,7 @@ describe('Firebase Deploy Hosting Phase', () => {
 			expect(response.ok).to.be.true;
 			const htmlContent = await response.text();
 			expect(htmlContent).to.include('Hello World');
-			
+
 			// Verify deployment-id in deployed HTML matches tarball metadata
 			expect(htmlContent).to.include(`Deployment ID: ${deploymentId}`);
 			hostingUnit.logDebug(`=== Deployment ID verified in deployed app: ${deploymentId} ===`);
