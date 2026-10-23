@@ -28,7 +28,7 @@ import {createServer as createHttpServer, Server} from 'http';
 import {createServer as createHttpsServer} from 'https';
 import {Socket} from 'net';
 import * as fs from 'fs';
-import {addItemToArray, LogLevel, Module} from '@nu-art/ts-common';
+import {addItemToArray, ImplementationMissingException, LogLevel, Module} from '@nu-art/ts-common';
 import express from 'express';
 
 import {HeaderKey_DeviceId, HeaderKey_TabId} from '@nu-art/thunderstorm-shared/headers';
@@ -213,6 +213,16 @@ export class HttpServer_Class
 		});
 	}
 
+	private readLocalSslFile(filePath: string, label: 'key' | 'cert'): string {
+		if (filePath.startsWith('-----BEGIN'))
+			return filePath;
+
+		if (!fs.existsSync(filePath))
+			throw new ImplementationMissingException(`Local HTTPS ${label} file is missing: ${filePath}`);
+
+		return fs.readFileSync(filePath, 'utf8');
+	}
+
 	private createServer(): Server {
 		const ssl = this.config.ssl;
 		if (!ssl) {
@@ -221,13 +231,8 @@ export class HttpServer_Class
 		}
 
 		this.logDebug('starting HTTPS server');
-		let key = ssl.key;
-		if (!ssl.key.startsWith('-----BEGIN'))
-			key = fs.readFileSync(ssl.key, 'utf8');
-
-		let cert = ssl.cert;
-		if (!ssl.cert.startsWith('-----BEGIN'))
-			cert = fs.readFileSync(ssl.cert, 'utf8');
+		const key = this.readLocalSslFile(ssl.key, 'key');
+		const cert = this.readLocalSslFile(ssl.cert, 'cert');
 
 		const options = {
 			key: key,

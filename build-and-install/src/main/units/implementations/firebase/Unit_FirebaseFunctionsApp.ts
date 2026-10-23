@@ -11,13 +11,14 @@ import {
 import {FirebasePackageConfig} from '../../../config/types/package/package.js';
 import {__stringify, _keys, _logger_logPrefixes, deepClone, ImplementationMissingException, LogLevel, Second, sleep, StringMap} from '@nu-art/ts-common';
 import {Const_FirebaseConfigKeys, Const_FirebaseDefaultsKeyToFile, Default_Files, FunctionBuildTemplateFiles} from '../../../templates/consts.js';
-import {Commando_NVM, CommandoException} from '@nu-art/commando';
+import {Commando_NVM, CommandoException, CommandoInteractive} from '@nu-art/commando';
 import {Phase_BuildPushImage, Phase_Deploy, Phase_DeployImage, Phase_Launch} from '../../../phases/definitions/consts.js';
 import {dirname, resolve} from 'path';
 import {existsSync} from 'fs';
 import {DEFAULT_TEMPLATE_PATTERN, FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
 import {Unit_TypescriptLib, Unit_TypescriptLib_Config} from '../Unit_TypescriptLib.js';
 import {deployLogFilter, ensureArtifactRegistryRepository, resolveCloudRunRegion, resolveDatabaseURL} from './common.js';
+import {cloudSchedulerCron, invokerIamDisabled} from './cloud-scheduler.js';
 import {mongoEmuContainerBaseName, mongoEmuContainerName, mongoReplicaSetEnsureEval} from './mongo-emulator.js';
 import {vendoredFileSpecifier} from './vendored-file-specifier.js';
 
@@ -833,7 +834,8 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 				CPU: cpuValue,
 				MEMORY: resources?.memory || '2Gi',
 				ENV_VARS: envVarsYaml,
-				SERVICE_ACCOUNT: serviceAccountYaml
+				SERVICE_ACCOUNT: serviceAccountYaml,
+				INVOKER_IAM_DISABLED: invokerIamDisabled(trigger),
 			};
 
 			// Generate service YAML from template
@@ -847,6 +849,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 
 			if (this.runtimeContext.runtimeParams.dryRun) {
 				this.logInfo(`[DRY RUN] Would execute: ${gcloudDeployCommand}`);
+				this.logScheduleDryRun(functionConfig, serviceName, region);
 				continue;
 			}
 
@@ -859,21 +862,12 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 				throw new CommandoException(`Failed to deploy function ${functionName} with exit code ${exitCode}`, stdout, stderr, exitCode);
 			});
 
-			// Get service URL after deployment
-			const getUrlCommand = `gcloud run services describe ${serviceName} --region=${region} --project=${runtimeProjectId} --format="value(status.url)"`;
-			await this.executeAsyncCommando(commando, getUrlCommand, (stdout, stderr, exitCode) => {
-				if (exitCode === 0) {
-					const url = stdout.trim();
-					if (url) {
-						this.functions[functionName] = url;
-						this.logInfo(`Function ${functionName} deployed at: ${url}`);
-					}
-					return;
-				}
-
-				// URL retrieval failure is not critical, log warning but don't fail
-				this.logWarning(`Failed to retrieve URL for function ${functionName}: ${stderr || stdout}`);
-			});
+			const serviceUrl = await this.readServiceUrl(commando, serviceName, region, runtimeProjectId, functionName);
+			if (serviceUrl) {
+				this.functions[functionName] = serviceUrl;
+				this.logInfo(`Function ${functionName} deployed at: ${serviceUrl}`);
+			}
+			await this.ensureCloudScheduler(commando, functionConfig, serviceName, region, runtimeProjectId, serviceUrl);
 		}
 
 		this.logInfo(`Functions deployed: `, this.functions);
@@ -935,6 +929,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 				MEMORY: resources?.memory || '2Gi',
 				ENV_VARS: envVarsYaml,
 				SERVICE_ACCOUNT: serviceAccountYaml,
+				INVOKER_IAM_DISABLED: invokerIamDisabled(functionConfig.trigger),
 			};
 
 			const serviceYamlFile = resolve(buildOutputDir, `service-${functionConfig.name}.yaml`);
@@ -946,6 +941,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 
 			if (this.runtimeContext.runtimeParams.dryRun) {
 				this.logInfo(`[DRY RUN] Would execute: ${gcloudDeployCommand}`);
+				this.logScheduleDryRun(functionConfig, serviceName, region);
 				continue;
 			}
 
@@ -956,24 +952,88 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 				throw new CommandoException(`Failed to deploy service ${serviceName} with exit code ${exitCode}`, stdout, stderr, exitCode);
 			});
 
-			const getUrlCommand = `gcloud run services describe ${serviceName} --region=${region} --project=${runtimeProjectId} --format="value(status.url)"`;
-			await this.executeAsyncCommando(commando, getUrlCommand, (stdout, stderr, exitCode) => {
-				if (exitCode === 0) {
-					const url = stdout.trim();
-					if (url) {
-						this.functions[functionConfig.name] = url;
-						this.logInfo(`Service ${serviceName} deployed at: ${url}`);
-					}
-					return;
-				}
-
-				this.logWarning(`Failed to retrieve URL for service ${serviceName}: ${stderr || stdout}`);
-			});
+			const serviceUrl = await this.readServiceUrl(commando, serviceName, region, runtimeProjectId, functionConfig.name);
+			if (serviceUrl) {
+				this.functions[functionConfig.name] = serviceUrl;
+				this.logInfo(`Service ${serviceName} deployed at: ${serviceUrl}`);
+			}
+			await this.ensureCloudScheduler(commando, functionConfig, serviceName, region, runtimeProjectId, serviceUrl);
 		}
 
 		this.logInfo(`Node services deployed: `, this.functions);
 	}
 
+
+	private logScheduleDryRun(functionConfig: FunctionConfig, serviceName: string, region: string) {
+		if (functionConfig.trigger !== 'schedule')
+			return;
+
+		const cron = cloudSchedulerCron(functionConfig.schedule ?? '');
+		this.logInfo(`[DRY RUN] Would create Cloud Scheduler job ${serviceName} in ${region} on '${cron}', private to its invoker`);
+	}
+
+	private async readServiceUrl(commando: CommandoInteractive, serviceName: string, region: string, projectId: string, functionName: string): Promise<string> {
+		let url = '';
+		const getUrlCommand = `gcloud run services describe ${serviceName} --region=${region} --project=${projectId} --format="value(status.url)"`;
+		await this.executeAsyncCommando(commando, getUrlCommand, (stdout, stderr, exitCode) => {
+			if (exitCode === 0) {
+				url = stdout.trim();
+				return;
+			}
+
+			this.logWarning(`Failed to retrieve URL for function ${functionName}: ${stderr || stdout}`);
+		});
+		return url;
+	}
+
+	/**
+	 * A schedule trigger is a private Cloud Run service plus a Cloud Scheduler
+	 * HTTP job. The job calls the service with an OIDC token from the service
+	 * account that is allowed to invoke it.
+	 */
+	private async ensureCloudScheduler(commando: CommandoInteractive, functionConfig: FunctionConfig, serviceName: string, region: string, projectId: string, serviceUrl: string) {
+		if (functionConfig.trigger !== 'schedule')
+			return;
+
+		if (!serviceUrl)
+			throw new ImplementationMissingException(`Scheduled function '${functionConfig.name}' deployed without a Cloud Run URL, so no scheduler job was created`);
+
+		const cron = cloudSchedulerCron(functionConfig.schedule ?? '');
+		const invoker = functionConfig.serviceAccountName ?? await this.defaultComputeServiceAccount(commando, projectId);
+		const bindInvoker = `gcloud run services add-iam-policy-binding ${serviceName} --region=${region} --project=${projectId} --member=serviceAccount:${invoker} --role=roles/run.invoker`;
+		await this.executeAsyncCommando(commando, bindInvoker, (stdout, stderr, exitCode) => {
+			if (exitCode !== 0)
+				throw new CommandoException(`Failed to grant ${invoker} run.invoker on ${serviceName}`, stdout, stderr, exitCode);
+		});
+
+		const describeJob = `gcloud scheduler jobs describe ${serviceName} --location=${region} --project=${projectId}`;
+		let jobExists = false;
+		await this.executeAsyncCommando(commando, describeJob, (stdout, stderr, exitCode) => {
+			jobExists = exitCode === 0;
+		});
+
+		const verb = jobExists ? 'update' : 'create';
+		const upsertJob = `gcloud scheduler jobs ${verb} http ${serviceName} --location=${region} --project=${projectId} --schedule='${cron}' --uri='${serviceUrl}' --http-method=POST --oidc-service-account-email=${invoker} --oidc-token-audience='${serviceUrl}'`;
+		await this.executeAsyncCommando(commando, upsertJob, (stdout, stderr, exitCode) => {
+			if (exitCode !== 0)
+				throw new CommandoException(`Failed to ${verb} Cloud Scheduler job ${serviceName}`, stdout, stderr, exitCode);
+		});
+		this.logInfo(`Cloud Scheduler job ${serviceName} ${verb}d on '${cron}'`);
+	}
+
+	private async defaultComputeServiceAccount(commando: CommandoInteractive, projectId: string): Promise<string> {
+		let projectNumber = '';
+		const describeProject = `gcloud projects describe ${projectId} --format="value(projectNumber)"`;
+		await this.executeAsyncCommando(commando, describeProject, (stdout, stderr, exitCode) => {
+			if (exitCode !== 0)
+				throw new CommandoException(`Failed to read project number for ${projectId}`, stdout, stderr, exitCode);
+			projectNumber = stdout.trim();
+		});
+		if (!projectNumber)
+			throw new ImplementationMissingException(`Project ${projectId} has no project number, so the scheduler has no invoker service account`);
+
+		return `${projectNumber}-compute@developer.gserviceaccount.com`;
+	}
 
 	//######################### ResolveConfig Logic #########################
 
