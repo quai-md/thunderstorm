@@ -1,6 +1,6 @@
 import {ModuleBE_ExpressFunction_V2} from '@nu-art/firebase-backend';
 import {Express, Response} from 'express';
-import {currentTimeMillis, generateHex, tsValidateResult, tsValidateShortUrl} from '@nu-art/ts-common';
+import {currentTimeMillis, tsValidateResult, tsValidateShortUrl} from '@nu-art/ts-common';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
 import {HttpsFunction} from 'firebase-functions/v2/https';
 import {ModuleBE_ShortUrlDB} from '../_entity/short-url/ModuleBE_ShortUrlDB.js';
@@ -9,13 +9,11 @@ import {SecretKey} from '@nu-art/google-services-backend/modules/ModuleBE_Secret
 import {
 	ApiDef_Analytics,
 	HeaderKey_AnalyticsSecret,
-	QueryParam_LaunchId,
 	SecretName_AnalyticsS2S,
 	TSAnalyticsEvent,
 } from '@nu-art/analytics-shared';
 
 type Config = {
-	options?: object;
 	/** Advisor BE origin including `/api` prefix, e.g. https://…/api */
 	analyticsBaseUrl?: string;
 	analyticsSecretName?: string;
@@ -44,7 +42,6 @@ class Module_ShortUrlResolver_Class
 	};
 
 	private emitShortUrlHit = async (params: {
-		launchId: string;
 		shortUrl: string;
 		searchParams: URLSearchParams;
 	}) => {
@@ -69,15 +66,10 @@ class Module_ShortUrlResolver_Class
 			?? params.searchParams.get('environment-id')
 			?? undefined;
 
-		const properties: Record<string, string> = {
-			launchId: params.launchId,
-			shortUrl: params.shortUrl,
-		};
-
 		const event: TSAnalyticsEvent = {
 			key: 'short_url_hit',
 			timestamp: currentTimeMillis(),
-			properties,
+			properties: {shortUrl: params.shortUrl},
 			...(facilityId || environmentId
 				? {
 					groups: {
@@ -116,18 +108,18 @@ class Module_ShortUrlResolver_Class
 					url.searchParams.append(key, value);
 			});
 
-			const launchId = url.searchParams.get(QueryParam_LaunchId) ?? generateHex(32);
-			if (!url.searchParams.has(QueryParam_LaunchId))
-				url.searchParams.set(QueryParam_LaunchId, launchId);
-
 			const redirectUrl = url.toString();
-			void this.emitShortUrlHit({
-				launchId,
-				shortUrl: dbShortUrl._shortUrl,
-				searchParams: url.searchParams,
-			}).catch(err => this.logError('Failed to emit short_url_hit', err));
-
-			return res.status(HttpCodes._3XX.MOVED_PERMANENTLY).redirect(redirectUrl);
+			// ExpressFunction equivalent of ServerApi.addPostCallAction: flush redirect,
+			// then await side-effect before the handler returns (keeps Cloud Run CPU alive).
+			res.status(HttpCodes._3XX.MOVED_PERMANENTLY).redirect(redirectUrl);
+			try {
+				await this.emitShortUrlHit({
+					shortUrl: dbShortUrl._shortUrl,
+					searchParams: url.searchParams,
+				});
+			} catch (err) {
+				this.logError('Failed to emit short_url_hit', err);
+			}
 		});
 
 		return super.createFunction(_express);
