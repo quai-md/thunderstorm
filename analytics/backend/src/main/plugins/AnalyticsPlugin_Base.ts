@@ -70,12 +70,12 @@ export abstract class AnalyticsPlugin_Base<
 
 	//######################### Public Logic #########################
 
-	public registerEvent(event: TSAnalyticsEvent) {
+	public registerEvents(events: TSAnalyticsEvent[]) {
 		if (!this.config?.active)
 			return;
 
-		const translatedEvent = this.translateEvent(event);
-		this.eventBuffer.push(translatedEvent);
+		const translatedEvents = events.map(this.translateEvent);
+		this.eventBuffer.push(...translatedEvents);
 		//If the max packet size has not been reached
 		if (this.eventBuffer.length < (this.config!.eventPacketSize ?? 0))
 			return this.debounce_EmptyEventBuffer();
