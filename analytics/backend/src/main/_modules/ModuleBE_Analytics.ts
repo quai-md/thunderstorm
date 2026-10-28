@@ -1,7 +1,7 @@
 import {Module} from '@nu-art/ts-common';
 import {AnalyticsPlugin_Base} from '../plugins/AnalyticsPlugin_Base.js';
 import {addRoutes, createBodyServerApi} from '@nu-art/thunderstorm-backend';
-import {Analytics_SendEvent, Analytics_UpdateLexicon, Analytics_UpdateUser, ApiDef_Analytics} from '@nu-art/analytics-shared';
+import {Analytics_SendEvents, Analytics_UpdateLexicon, Analytics_UpdateUser, ApiDef_Analytics} from '@nu-art/analytics-shared';
 import {AnalyticsPluginRegistry} from '../plugins/index.js';
 
 type Config = {
@@ -19,7 +19,7 @@ class ModuleBE_Analytics_Class
 		super.init();
 		this.initPlugins();
 		addRoutes([
-			createBodyServerApi(ApiDef_Analytics()._v1.sendEvent, this.api_sendEvent),
+			createBodyServerApi(ApiDef_Analytics()._v1.sendEvents, this.api_sendEvents),
 			createBodyServerApi(ApiDef_Analytics()._v1.updateUser, this.api_updateUser),
 			createBodyServerApi(ApiDef_Analytics()._v1.updateLexicon, this.api_updateLexicon),
 		]);
@@ -45,9 +45,9 @@ class ModuleBE_Analytics_Class
 
 	//######################### API Callbacks #########################
 
-	private api_sendEvent = async (request: Analytics_SendEvent['request']): Promise<Analytics_SendEvent['response']> => {
+	private api_sendEvents = async (request: Analytics_SendEvents['request']): Promise<Analytics_SendEvents['response']> => {
 		return this.plugins.forEach(plugin => {
-			plugin.registerEvent(request.event);
+			plugin.registerEvents(request.events);
 		});
 	};
 
