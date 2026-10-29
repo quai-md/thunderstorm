@@ -58,6 +58,23 @@ export type ThunderConfig = {
 	configUrl: string
 }
 
+function configForThisRun(config: ThunderConfig): ThunderConfig {
+	const databasePort = process.env.e2eDatabasePort;
+	if (!databasePort)
+		return config;
+
+	return {
+		configUrl: urlOnPort(config.configUrl, databasePort),
+		defaultConfigUrl: config.defaultConfigUrl ? urlOnPort(config.defaultConfigUrl, databasePort) : undefined,
+	};
+}
+
+function urlOnPort(url: string, port: string): string {
+	const parsed = new URL(url);
+	parsed.port = port;
+	return parsed.toString();
+}
+
 export class Thunder
 	extends ModuleManager {
 
@@ -78,7 +95,7 @@ export class Thunder
 		ThunderDispatcher['listenersResolver'] = () => this.listeners;
 		this.addPreBuildAction(this.fetchConfig.bind(this)); // add config resolver as a pre build action
 
-		this.innerConfig = Object.freeze(config);
+		this.innerConfig = Object.freeze(configForThisRun(config));
 	}
 
 	static getInstance(): Thunder {

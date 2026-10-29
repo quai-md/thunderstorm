@@ -28,7 +28,7 @@ export const HeaderKey_CurrentPage = 'x-current-page';
 export type Browser = 'chrome';//| "firefox" | "blink" | "edge" | "ie" | "safari" | "opera"
 
 export const DefaultHttpServerConfig = {
-	'bodyParserLimit': 200,
+	'bodyParserLimit': '200kb',
 	'cors': {
 		'headers': [
 			HeaderKey_Authorization,

@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/toasting",
-  "version": "$THUNDERSTORM_VERSION",
+  "version": "{{THUNDERSTORM_VERSION}}",
   "description": "Toasting",
   "keywords": [
     "TacB0sS",

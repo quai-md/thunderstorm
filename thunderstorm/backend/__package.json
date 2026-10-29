@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/thunderstorm-backend",
-  "version": "$THUNDERSTORM_VERSION",
+  "version": "{{THUNDERSTORM_VERSION}}",
   "description": "Thunderstorm Backend",
   "keywords": [
     "TacB0sS",
@@ -94,7 +94,6 @@
     "./*": {
       "types": "./*.d.ts",
       "import": "./*.js"
-    },
-    "./styles": "./styles.scss"
+    }
   }
 }

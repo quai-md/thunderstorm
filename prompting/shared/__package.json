@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/prompting-shared",
-  "version": "$THUNDERSTORM_VERSION",
+  "version": "{{THUNDERSTORM_VERSION}}",
   "description": "Prompting shared types for AI prompt entities",
   "keywords": [
     "TacB0sS",

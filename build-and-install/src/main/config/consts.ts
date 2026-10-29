@@ -1,6 +1,8 @@
 /**
  * Constants for file names and configuration keys used throughout the build system.
  */
+import {MemKey} from '@nu-art/ts-common/mem-storage';
+import {RuntimeProjectConfig} from './types/project-config.js';
 
 /** Version file name (version-app.json) */
 export const CONST_VersionApp = 'version-app.json';
@@ -39,3 +41,5 @@ export const CONST_DeployHostingDir = 'deploy-hosting';
 /** Build image temp directory name (build-image) */
 export const CONST_BuildImageDir = 'build-image';
 
+/** Memory storage key for packages configuration */
+export const MemKey_Packages = new MemKey<RuntimeProjectConfig>('bai-packages', true);

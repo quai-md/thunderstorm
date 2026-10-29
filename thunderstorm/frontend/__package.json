@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/thunderstorm-frontend",
-  "version": "$THUNDERSTORM_VERSION",
+  "version": "{{THUNDERSTORM_VERSION}}",
   "description": "Thunderstorm Frontend",
   "keywords": [
     "TacB0sS",
@@ -98,6 +98,8 @@
       "types": "./*.d.ts",
       "import": "./*.js"
     },
-    "./styles": "./styles.scss"
+    "./styles": {
+      "sass": "./styles.scss"
+    }
   }
 }

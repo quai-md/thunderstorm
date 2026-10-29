@@ -1,6 +1,6 @@
 {
   "name": "@nu-art/commando",
-  "version": "$THUNDERSTORM_VERSION",
+  "version": "{{THUNDERSTORM_VERSION}}",
   "description": "Shell command execution framework with interactive sessions, CLI parameter resolution, and plugin system for building and executing shell scripts programmatically",
   "type": "module",
   "keywords": [
@@ -23,20 +23,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com:nu-art-js/thunderstorm.git",
+    "url": "git+ssh://git@github.com/nu-art-js/thunderstorm.git",
     "directory": "_thunderstorm/commando"
-  },
-  "publishConfig": {
-    "directory": "dist"
   },
   "license": "Apache-2.0",
   "author": "TacB0sS",
   "files": [
     "**/*"
   ],
-  "scripts": {
-    "build": "tsc"
-  },
   "dependencies": {
     "@nu-art/cli-params": "?",
     "@nu-art/ts-common": "?"
@@ -44,7 +38,9 @@
   "devDependencies": {
     "@nu-art/testalot": "?"
   },
+  "publishConfig": {"directory": "dist", "linkDirectory": true},
   "unitConfig": {
+    "output": "dist",
     "type": "typescript-lib"
   },
   "exports": {

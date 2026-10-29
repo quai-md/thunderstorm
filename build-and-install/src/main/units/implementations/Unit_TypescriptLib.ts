@@ -12,6 +12,7 @@ import {
 	TypedMap
 } from '@nu-art/ts-common';
 import {UnitPhaseImplementor} from '../../core/types.js';
+import {preparePackageJsonForPublish} from './publish-package-json.js';
 import {CONST_BaiConfig, CONST_FirebaseJSON, CONST_FirebaseRC, CONST_PackageJSON, CONST_PackageJSONTemplate, CONST_TS_CONFIG} from '../../config/consts.js';
 import {Commando_Basic, Commando_NVM, CommandoException} from '@nu-art/commando';
 import {resolve, resolve as pathResolve} from 'path';
@@ -27,11 +28,11 @@ import {
 	Phase_Publish,
 	Phase_Test,
 	Phase_ToESM
-} from '../../phases/definitions/index.js';
+} from '../../phases/definitions/consts.js';
 import {ProjectUnit_RuntimeContext} from '../base/ProjectUnit.js';
 import {glob} from 'node:fs/promises';
 import {TestType, TestTypes} from '../../core/params.js';
-import {DEFAULT_OLD_TEMPLATE_PATTERN, DEFAULT_TEMPLATE_PATTERN, FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
+import {DEFAULT_TEMPLATE_PATTERN, FileSystemUtils} from '@nu-art/ts-common/utils/FileSystemUtils';
 import path from 'node:path';
 import {ExportMapper} from '../../exports/ExportMapper.js';
 import {TsConfig} from '../base/types.js';
@@ -57,6 +58,7 @@ const assets = [
 	'*.csv',
 	'*.yaml',
 	'dockerfile',
+	'dockerfile-*',
 ];
 
 
@@ -64,7 +66,8 @@ const defaultTestPatterns: Record<TestType, string> = {
 	pure: '**/*.test.ts',
 	firebase: '**/*.test.firebase.ts',
 	ui: '**/*.test.ui.ts',
-	mobile: '**/*.test.mobile.ts'
+	mobile: '**/*.test.mobile.ts',
+	playwright: '**/*.test.playwright.ts'
 };
 const CONST_ESM_PREFIX = 'export NODE_OPTIONS=\'--import data:text/javascript,import%20%7B%20register%20%7D%20from%20%22node%3Amodule%22%3B%20import%20%7B%20pathToFileURL%20%7D%20from%20%22node%3Aurl%22%3B%20register%28%22ts-node%2Fesm%22%2C%20pathToFileURL%28%22.%2F%22%29%29%3B\'';
 const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config, runtimeContext: ProjectUnit_RuntimeContext) => Promise<string>> = {
@@ -95,13 +98,44 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
 		// const pah = 'ts-mocha  --timeout 0 --inspect=8107 --watch-files \'src/test/**/*.test.ts\' src/test/**/*.test.ts';
 
 		const functionContextCommand = `${CONST_ESM_PREFIX} && ${command} -p src/test/${CONST_TS_CONFIG} --timeout 0 ${cli_debug}${cli_testFiles}${cli_testCases}`;
-		return `firebase emulators:exec "${functionContextCommand}"`;
+		// Same resolution as npmCommand(): the unit's own CLI first, then the workspace one (not a global firebase on PATH)
+		const packageFirebase = resolve(config.fullPath, 'node_modules/.bin/firebase');
+		const firebase = existsSync(packageFirebase) ? packageFirebase : resolve(runtimeContext.parentUnit.config.fullPath, 'node_modules/.bin/firebase');
+		return `${firebase} emulators:exec "${functionContextCommand}"`;
 	},
 	ui: async () => {
 		throw new NotImplementedYetException('UI tests not implemented yet');
 	},
 	mobile: async () => {
 		throw new NotImplementedYetException('Mobile tests not implemented yet');
+	},
+	playwright: async (config, runtimeContext) => {
+		const command = resolve(runtimeContext.parentUnit.config.fullPath, 'node_modules/.bin/playwright');
+
+		// Playwright accepts file paths as arguments (not glob patterns)
+		// If testFiles not explicitly provided, discover them via glob and convert to relative paths
+		let testFiles = runtimeContext.runtimeParams.testFiles;
+		if (!testFiles) {
+			const pattern = resolve(config.fullPath, 'src/test', defaultTestPatterns.playwright);
+			const fileIterator = glob(pattern, {});
+			const absoluteFiles = [];
+			for await (const file of fileIterator)
+				absoluteFiles.push(file);
+
+			testFiles = absoluteFiles.map(file => path.relative(config.fullPath, file));
+		}
+
+		const cli_testFiles = testFiles.length > 0 ? ` ${testFiles.join(' ')}` : '';
+
+		// Map test cases to Playwright's --grep option
+		const testCases = runtimeContext.runtimeParams.testCases;
+		const cli_testCases = testCases ? ` --grep '${testCases.join('|')}'` : '';
+
+		// Map debug port to Playwright's --debug option
+		const debugPort = runtimeContext.runtimeParams.testDebugPort;
+		const cli_debug = debugPort ? ` --debug=${debugPort}` : '';
+
+		return `${command} test${cli_testFiles}${cli_testCases}${cli_debug}`;
 	},
 };
 
@@ -110,7 +144,7 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
  *
  * **Key Responsibilities**:
  * - Compiles TypeScript to JavaScript
- * - Runs tests (pure, firebase, ui, mobile)
+ * - Runs tests (pure, firebase, ui, mobile, playwright)
  * - Lints code
  * - Publishes packages
  * - Manages assets (JSON, SCSS, SVG, images)
@@ -132,6 +166,11 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
  * - **firebase**: Tests with Firebase emulators
  * - **ui**: UI tests (not implemented)
  * - **mobile**: Mobile tests (not implemented)
+ * - **playwright**: Playwright test runner (@playwright/test)
+ *   - Automatic browser instance management (one per worker)
+ *   - Better performance with shared browser instances across test files
+ *   - Built-in fixtures and test isolation
+ *   - Pattern: **\/*.test.playwright.ts
  *
  * **Asset Management**: Automatically copies non-TypeScript files (JSON, SCSS, SVG, images)
  * to output directory during compilation.
@@ -141,6 +180,41 @@ const TestsCommandComposer: Record<TestType, (config: Unit_TypescriptLib_Config,
 export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_TypescriptLib_Config>
 	extends Unit_PackageJson<C>
 	implements UnitPhaseImplementor<[Phase_PreCompile, Phase_Compile, Phase_PrintDependencyTree, Phase_CheckCyclicImports, Phase_Lint, Phase_Test, Phase_Publish, Phase_ToESM, Phase_ExtractDynamicDeps, Phase_MapExports]> {
+
+	private firebaseTestMongoHost?: string;
+	private firebaseTestMongoContainer?: string;
+	private firebaseTestEmulatorPorts?: number[];
+
+	/**
+	 * Tears down resources owned by the firebase test harness for this unit.
+	 * Idempotent — safe from both runTests finally and SIGINT terminatable.
+	 *
+	 * Setup never kills ports already in use (scan-for-free instead). Cleanup
+	 * only releases the ports / container this setup allocated.
+	 */
+	private stopFirebaseTestResources = async () => {
+		const containerName = this.firebaseTestMongoContainer;
+		const ports = this.firebaseTestEmulatorPorts;
+		this.firebaseTestMongoContainer = undefined;
+		this.firebaseTestMongoHost = undefined;
+		this.firebaseTestEmulatorPorts = undefined;
+
+		if (containerName) {
+			this.logInfo(`Stopping MongoDB test container (container: ${containerName})`);
+			try {
+				const stopCommando = this.allocateCommando();
+				await this.executeAsyncCommando(stopCommando, `docker rm -f ${containerName}`, () => {
+				});
+			} catch (e: any) {
+				this.logWarning(`Failed to stop MongoDB test container: ${e.message}`);
+			}
+		}
+
+		// releasePorts skips com.docker* — safe for java emulator leftovers after
+		// emulators:exec / hard interrupt. Never call this on the mongo host port.
+		if (ports?.length)
+			await this.releasePorts(ports.map(String));
+	};
 
 	private TestTypeWorkspaceSetup: Record<TestType, (config: Unit_TypescriptLib_Config, runtimeContext: ProjectUnit_RuntimeContext) => Promise<void>> = {
 		pure: async (config, runtimeContext) => {
@@ -156,36 +230,119 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 
 			const pathToProjectRoot = runtimeContext.parentUnit.config.fullPath;
 			await FileSystemUtils.file.copy(resolve(pathToProjectRoot, pathToTestsFirebaseRC), resolve(config.fullPath, CONST_FirebaseRC));
-			const ports = [
-				`${(runtimeContext.baiConfig.files?.tests?.firebase?.baseEmulationPort ?? 8000) + 1}`,
-				`${(runtimeContext.baiConfig.files?.tests?.firebase?.baseEmulationPort ?? 8000) + 2}`,
-				`${(runtimeContext.baiConfig.files?.tests?.firebase?.baseEmulationPort ?? 8000) + 3}`
-			];
-
-			if (runtimeContext.runtimeParams.testDebugPort)
-				ports.push(`${runtimeContext.runtimeParams.testDebugPort}`);
-
+			const baseEmulationPort = runtimeContext.baiConfig.files?.tests?.firebase?.baseEmulationPort ?? 8000;
+			const [rtdbPort, firestorePort, websocketPort] = await this.resolveConsecutiveAvailableHostPorts(baseEmulationPort + 1, 3);
+			this.firebaseTestEmulatorPorts = [rtdbPort, firestorePort, websocketPort];
 
 			const firebaseConfigFiles = runtimeContext.baiConfig.files?.firebase;
 			if (!firebaseConfigFiles)
 				throw new ImplementationMissingException(`Missing firebase config files in ${CONST_BaiConfig}`);
 
 			await FileSystemUtils.file.template.copy(resolve(pathToProjectRoot, pathToTestsFirebaseJson), resolve(config.fullPath, CONST_FirebaseJSON), {
-				FIREBASE_RTDB_PORT: ports[0],
-				FIRESTORE_PORT: ports[1],
-				FIRESTORE_WEBSOCKET_PORT: ports[2],
+				FIREBASE_RTDB_PORT: `${rtdbPort}`,
+				FIRESTORE_PORT: `${firestorePort}`,
+				FIRESTORE_WEBSOCKET_PORT: `${websocketPort}`,
 				FIREBASE_DATABASE_RULES: resolve(pathToProjectRoot, firebaseConfigFiles.databaseRules!),
 				FIREBASE_FIRESTORE_RULES: resolve(pathToProjectRoot, firebaseConfigFiles.firestoreRules!),
 				FIREBASE_FIRESTORE_INDICES: resolve(pathToProjectRoot, firebaseConfigFiles.firestoreIndexesRules!),
 			}, DEFAULT_TEMPLATE_PATTERN);
 
-			await this.releasePorts(ports);
+			// Emulator ports are resolved above — never releasePorts on them during setup
+			// (would kill whatever currently owns them: leftover test java or concurrent runs).
+			if (runtimeContext.runtimeParams.testDebugPort)
+				await this.releasePorts([`${runtimeContext.runtimeParams.testDebugPort}`]);
+
+			const baseMongoPort = runtimeContext.baiConfig.files?.tests?.firebase?.mongoPort;
+			if (baseMongoPort) {
+				const mongoPort = await this.resolveAvailableHostPort(baseMongoPort);
+				this.firebaseTestMongoHost = `localhost:${mongoPort}`;
+				const containerName = `mongo-test-${config.key.replace(/[^a-z0-9-]/gi, '-')}`;
+				this.firebaseTestMongoContainer = containerName;
+				this.logInfo(`Starting MongoDB test container on port ${mongoPort} (container: ${containerName})`);
+
+				// SIGINT mid-run: PhaseManager.break() → unit.kill() → this terminatable.
+				// Normal success/failure: runTests finally (terminatable alone never fires on exit).
+				this.unregisterTerminatable(this.stopFirebaseTestResources);
+				this.registerTerminatable(this.stopFirebaseTestResources);
+
+				const rmCommando = this.allocateCommando();
+				await this.executeAsyncCommando(rmCommando, `docker rm -f ${containerName} 2>/dev/null || true`, () => {});
+				const commando = this.allocateCommando();
+				await this.executeAsyncCommando(commando, `docker run -d --name ${containerName} -p ${mongoPort}:${mongoPort} mongo:7 --replSet rs0 --port ${mongoPort}`, (stdout, stderr, exitCode) => {
+					if (exitCode !== 0)
+						throw new CommandoException('Failed to start MongoDB test container', stdout, stderr, exitCode);
+				});
+
+				const initCommando = this.allocateCommando();
+				await this.executeAsyncCommando(initCommando, `sleep 3 && docker exec ${containerName} mongosh --port ${mongoPort} --quiet --eval "rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:${mongoPort}'}]}); while(!rs.status().members.some(m=>m.stateStr==='PRIMARY')){sleep(200)} print('PRIMARY ready')"`, (stdout, stderr, exitCode) => {
+					if (exitCode !== 0)
+						throw new CommandoException('Failed to initiate MongoDB test replica set', stdout, stderr, exitCode);
+				});
+
+				this.logInfo(`MongoDB test container started as replica set on port ${mongoPort}`);
+			} else {
+				this.unregisterTerminatable(this.stopFirebaseTestResources);
+				this.registerTerminatable(this.stopFirebaseTestResources);
+			}
 		},
 		ui: async () => {
 			throw new NotImplementedYetException('UI tests not implemented yet');
 		},
 		mobile: async () => {
 			throw new NotImplementedYetException('Mobile tests not implemented yet');
+		},
+		playwright: async (config, runtimeContext) => {
+			const playwrightConfigPath = resolve(config.fullPath, 'playwright.config.ts');
+
+			// Generate playwright.config.ts if missing
+			if (!await FileSystemUtils.file.exists(playwrightConfigPath)) {
+				const playwrightConfig = runtimeContext.baiConfig.files?.tests?.playwright;
+				const browsers = playwrightConfig?.browsers ?? ['chromium'];
+				const headless = playwrightConfig?.headless ?? true;
+				const baseURL = playwrightConfig?.baseURL;
+				const viewport = playwrightConfig?.viewport ?? {width: 1280, height: 720};
+
+				// Vite config: from bai-config, or default to shared _thunderstorm/vite.config.ts when package is under _thunderstorm
+				const projectRoot = runtimeContext.parentUnit.config.fullPath;
+				const viteConfigPathFromConfig = playwrightConfig?.vite?.configPath;
+				const defaultThunderstormVitePath = '_thunderstorm/vite.config.ts';
+				const viteConfigPath = viteConfigPathFromConfig ?? (config.fullPath.includes('_thunderstorm') ? defaultThunderstormVitePath : undefined);
+				const vitePort = playwrightConfig?.vite?.port ?? 5173;
+				const viteOptions = viteConfigPath ? {
+					port: vitePort,
+					configPath: path.relative(config.fullPath, resolve(projectRoot, viteConfigPath))
+				} : undefined;
+
+				const configContent = this.generatePlaywrightConfig({
+					browsers,
+					headless,
+					baseURL,
+					viewport,
+					vite: viteOptions
+				});
+
+				await FileSystemUtils.file.write(playwrightConfigPath, configContent);
+				this.logInfo(`Generated playwright.config.ts for ${config.key}`);
+			}
+
+			// Ensure browser binaries are installed
+			const commando = this.allocateCommando(Commando_NVM)
+				.cd(config.fullPath);
+
+			const playwrightConfig = runtimeContext.baiConfig.files?.tests?.playwright;
+			const browsersToInstall = playwrightConfig?.browsers ?? ['chromium'];
+
+			for (const browser of browsersToInstall) {
+				await this.executeAsyncCommando(
+					commando,
+					`npx playwright install ${browser}`,
+					(stdout, stderr, exitCode) => {
+						if (exitCode !== 0) {
+							this.logWarning(`Failed to install ${browser} browser, tests may fail`);
+						}
+					}
+				);
+			}
 		},
 	};
 
@@ -213,16 +370,97 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 				continue;
 			}
 
-			await this.TestTypeWorkspaceSetup[testType](this.config, this.runtimeContext);
-			const commando = this.allocateCommando(Commando_NVM)
-				.cd(this.config.fullPath);
+			try {
+				await this.TestTypeWorkspaceSetup[testType](this.config, this.runtimeContext);
+				const commando = this.allocateCommando(Commando_NVM)
+					.cd(this.config.fullPath);
 
-			const testCommand = await TestsCommandComposer[testType](this.config, this.runtimeContext);
-			await this.executeAsyncCommando(commando, testCommand, (stdout, stderr, exitCode) => {
-				if (exitCode !== 0)
-					throw new CommandoException(`Error running tests`, stdout, stderr, exitCode);
-			});
+				if (testType === 'firebase' && this.firebaseTestMongoHost)
+					commando.custom(`export MONGODB_EMULATOR_HOST=${this.firebaseTestMongoHost}`);
+
+				const testCommand = await TestsCommandComposer[testType](this.config, this.runtimeContext);
+
+				await this.executeAsyncCommando(commando, testCommand, (stdout, stderr, exitCode) => {
+					if (exitCode !== 0)
+						throw new CommandoException(`Error running tests`, stdout, stderr, exitCode);
+				});
+			} finally {
+				if (testType === 'firebase') {
+					// Terminatables only run on SIGINT via PhaseManager.break() — always
+					// reclaim our mongo container + emulator ports on normal exit too.
+					this.unregisterTerminatable(this.stopFirebaseTestResources);
+					await this.stopFirebaseTestResources();
+				}
+			}
 		}
+	}
+
+	private generatePlaywrightConfig(options: {
+		browsers: string[];
+		headless: boolean;
+		baseURL?: string;
+		viewport: { width: number; height: number };
+		vite?: {
+			port: number;
+			configPath: string; // Relative path from package to vite config
+		};
+	}): string {
+		const browserNames = options.browsers.map(browser => {
+			const deviceName = browser === 'webkit' ? 'Safari' : browser.charAt(0).toUpperCase() + browser.slice(1);
+			return `    {
+      name: '${browser}',
+      use: { ...devices['Desktop ${deviceName}'] },
+    }`;
+		}).join(',\n');
+
+		// Build webServer block if vite config is provided
+		const viteConfig = options.vite;
+		const webServerBlock = viteConfig ? `
+  webServer: {
+    command: \`npx vite --config \${resolve(__dirname, '${viteConfig.configPath}')} --port \${vitePort} --host 127.0.0.1\`,
+    url: \`http://127.0.0.1:\${vitePort}/src/test/index.html\`,
+    reuseExistingServer: true,
+    timeout: 60000,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  },
+` : '';
+
+		// Use vite URL as baseURL when vite is configured, otherwise use provided baseURL
+		const baseURL = viteConfig
+			? '`http://127.0.0.1:${vitePort}`'
+			: options.baseURL ? `'${options.baseURL}'` : undefined;
+		const baseURLConfig = baseURL ? `    baseURL: ${baseURL},` : '';
+
+		// Add imports based on whether vite is used
+		const imports = viteConfig
+			? `import {defineConfig, devices} from '@playwright/test';
+import {resolve} from 'path';
+import {fileURLToPath} from 'url';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const vitePort = process.env.VITE_PORT || '${viteConfig.port}';
+`
+			: `import {defineConfig, devices} from '@playwright/test';
+`;
+
+		return `${imports}
+export default defineConfig({
+  testDir: './src/test',
+  testMatch: '**/*.test.playwright.ts',
+${webServerBlock}
+  use: {
+    headless: ${options.headless},
+${baseURLConfig ? baseURLConfig + '\n' : ''}    viewport: { width: ${options.viewport.width}, height: ${options.viewport.height} },
+  },
+
+  projects: [
+${browserNames}
+  ],
+
+  timeout: 30000,
+});
+`;
 	}
 
 	protected dependencyUnits!: Unit_TypescriptLib[];
@@ -516,7 +754,7 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 		const packageJson = FileSystemUtils.file.template.transform(__stringify(this.config.packageJson, true), params);
 		this.logVerbose('Compiling params: ', params);
 		this.logVerbose('Compiling from package.json: ', packageJson);
-		await FileSystemUtils.file.template.write(targetPath, packageJson, params, DEFAULT_OLD_TEMPLATE_PATTERN);
+		await FileSystemUtils.file.template.write(targetPath, packageJson, params, DEFAULT_TEMPLATE_PATTERN);
 	}
 
 	async purge() {
@@ -623,11 +861,16 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 		}
 
 		const tsConfigPath = pathResolve(entryPath, CONST_TS_CONFIG);
+		// outDir is resolved from the tsconfig file, which lives in src/<folder>, not the package root.
+		const outDir = path.relative(entryPath, this.config.output);
 		if (this.config.customTSConfig) {
 			if (!existsSync(tsConfigPath))
 				throw new BadImplementationException(`Expected custom tsconfig in folder for source folder: ${entryPath}`);
 
-			this.logVerbose(`${CONST_TS_CONFIG} is defined custom for source: ${sourceFolderType}, skipping copy.`);
+			const existing = await FileSystemUtils.file.read.json<TsConfig>(tsConfigPath);
+			existing.compilerOptions = {...existing.compilerOptions, outDir};
+			await FileSystemUtils.file.write.json(tsConfigPath, existing);
+			this.logVerbose(`${CONST_TS_CONFIG} is custom for source: ${sourceFolderType}; stamped outDir ${outDir}.`);
 			return;
 		}
 
@@ -645,6 +888,7 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 				...tsConfigOverride,
 				compilerOptions: {
 					...tsConfigOverride?.compilerOptions,
+					outDir,
 					...(this.runtimeContext.runtimeParams.publish ? {} : {
 						sourceMap: true,
 						sourceRoot: entryPath
@@ -674,6 +918,8 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 		if (this.config.packageJson.private)
 			return this.logInfo(`Not publishing a private package`);
 
+		await preparePackageJsonForPublish(this.config.output);
+
 		if (this.runtimeContext.runtimeParams.simulation) {
 			this.logWarning(` ===> Publish Simulation -STARTED <=== `);
 			this.logDebug(`Creating NPM Package`);
@@ -685,7 +931,7 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 			this.logDebug(`Publishing Dry Run`);
 			await this.allocateCommando(Commando_Basic)
 				.cd(this.config.output)
-				.append('npm publish --dry-run')
+				.append('npm publish --dry-run --tag latest')
 				.execute();
 			this.logWarning(` ===> Publish Simulation - ENDED <=== `);
 
@@ -695,7 +941,7 @@ export class Unit_TypescriptLib<C extends Unit_TypescriptLib_Config = Unit_Types
 		this.logDebug(`Publishing Package - For REAL`);
 		await this.allocateCommando(Commando_Basic)
 			.cd(this.config.output)
-			.append('npm publish --access public')
+			.append('npm publish --access public --tag latest')
 			.execute();
 	}
 

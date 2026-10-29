@@ -1,5 +1,6 @@
 import {StringMap, TypedMap} from '@nu-art/ts-common';
-import {Package, RuntimePackage} from './package/index.js';
+import type {Package} from './package/package.js';
+import type {RuntimePackage} from './package/runtime-package.js';
 
 export type ProjectConfig = {
 	params: StringMap;
@@ -20,6 +21,7 @@ export type BAI_Config = {
 	appVersion: string
 	templateParams?: {
 		packageJson?: TypedMap<string>
+		params?: TypedMap<string | number>
 	}
 	files?: {
 		docker?: {
@@ -30,6 +32,20 @@ export type BAI_Config = {
 				'firebase.json'?: string
 				'.firebaserc'?: string
 				baseEmulationPort?: number
+				mongoPort?: number
+			}
+			playwright?: {
+				browsers?: ('chromium' | 'firefox' | 'webkit')[]
+				headless?: boolean
+				baseURL?: string
+				viewport?: {
+					width: number
+					height: number
+				}
+				vite?: {
+					port?: number
+					configPath?: string // Relative path from project root to vite config (e.g., 'vite.config.ts')
+				}
 			}
 		}
 		firebase?: {
@@ -43,7 +59,7 @@ export type BAI_Config = {
 			eslintConfig?: string
 		}
 		backend: {
-			proxy: string
+			proxy: string | null
 		}
 	}
 }

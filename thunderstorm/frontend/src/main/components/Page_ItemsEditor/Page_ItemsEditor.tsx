@@ -65,7 +65,7 @@ export type Props_ItemsEditor<Proto extends DBProto<any>> = {
 	EditorRenderer: React.ComponentType<Partial<Props_EditableItemControllerProto<Proto>>>,
 	Filter?: React.ComponentType<Props_Filter<Proto>>
 	module: ModuleFE_BaseApi<Proto>,
-	route?: TS_Route<{ _id: string }>,
+	route?: TS_Route,
 	sort: ItemEditor_CustomSort<Proto>,
 	mapper: ItemEditor_MapperType<Proto>
 	itemRenderer: (item: Proto['uiType']) => JSX.Element,
