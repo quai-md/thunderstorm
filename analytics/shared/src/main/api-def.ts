@@ -1,9 +1,9 @@
 import {ApiDefResolver, BodyApi, HttpMethod} from '@nu-art/thunderstorm-shared';
 import {TSAnalyticsEvent} from './types.js';
 
-export type Analytics_SendEvent = {
+export type Analytics_SendEvents = {
 	request: {
-		event: TSAnalyticsEvent;
+		events: TSAnalyticsEvent[];
 	};
 	response: void;
 };
@@ -34,7 +34,7 @@ export type Analytics_UpdateLexicon = {
 
 export type ApiStruct_Analytics = {
 	_v1: {
-		sendEvent: BodyApi<Analytics_SendEvent['response'], Analytics_SendEvent['request']>;
+		sendEvents: BodyApi<Analytics_SendEvents['response'], Analytics_SendEvents['request']>;
 		updateUser: BodyApi<Analytics_UpdateUser['response'], Analytics_UpdateUser['request']>;
 		updateLexicon: BodyApi<Analytics_UpdateLexicon['response'], Analytics_UpdateLexicon['request']>
 	}
@@ -42,7 +42,7 @@ export type ApiStruct_Analytics = {
 
 export const ApiDef_Analytics: (baseUrl?: string) => ApiDefResolver<ApiStruct_Analytics> = (baseUrl) => ({
 	_v1: {
-		sendEvent: {baseUrl, method: HttpMethod.POST, path: '/v1/analytics/send-event'},
+		sendEvents: {baseUrl, method: HttpMethod.POST, path: '/v1/analytics/send-events'},
 		updateUser: {baseUrl, method: HttpMethod.POST, path: '/v1/analytics/update-user'},
 		updateLexicon: {baseUrl, method: HttpMethod.POST, path: '/v1/analytics/update-lexicon'},
 	}

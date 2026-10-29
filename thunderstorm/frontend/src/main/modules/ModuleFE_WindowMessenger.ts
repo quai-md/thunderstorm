@@ -168,6 +168,11 @@ export class Receiver<T extends Message>
 		return this;
 	}
 
+	removeProcessor<K extends T>(key: K['key']) {
+		delete this.messageProcessorMap[key];
+		return this;
+	}
+
 	executeImpl(message: any) {
 		const transformedMessages = this.transform(message);
 		transformedMessages.forEach(_transformedMessage => {

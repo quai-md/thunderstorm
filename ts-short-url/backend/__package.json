@@ -32,8 +32,10 @@
   },
   "dependencies": {
     "@nu-art/ts-short-url-shared": "?",
+    "@nu-art/analytics-shared": "?",
     "@nu-art/firebase-backend": "?",
     "@nu-art/firebase-shared": "?",
+    "@nu-art/google-services-backend": "?",
     "@nu-art/permissions-backend": "?",
     "@nu-art/permissions-shared": "?",
     "@nu-art/thunderstorm-backend": "?",

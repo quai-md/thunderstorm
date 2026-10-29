@@ -1,12 +1,27 @@
 import {ModuleBE_ExpressFunction_V2} from '@nu-art/firebase-backend';
 import {Express, Response} from 'express';
-import {tsValidateResult, tsValidateShortUrl} from '@nu-art/ts-common';
+import {currentTimeMillis, tsValidateResult, tsValidateShortUrl} from '@nu-art/ts-common';
 import {HttpCodes} from '@nu-art/ts-common/core/exceptions/http-codes';
 import {HttpsFunction} from 'firebase-functions/v2/https';
 import {ModuleBE_ShortUrlDB} from '../_entity/short-url/ModuleBE_ShortUrlDB.js';
+import {AxiosHttpModule, Storm} from '@nu-art/thunderstorm-backend';
+import {SecretKey} from '@nu-art/google-services-backend/modules/ModuleBE_SecretManager';
+import {
+	ApiDef_Analytics,
+	HeaderKey_AnalyticsSecret,
+	SecretName_AnalyticsS2S,
+	TSAnalyticsEvent,
+} from '@nu-art/analytics-shared';
+
+type Config = {
+	/** Advisor BE origin including `/api` prefix, e.g. https://…/api */
+	analyticsBaseUrl?: string;
+	analyticsSecretName?: string;
+	localAnalyticsSecret?: string;
+};
 
 class Module_ShortUrlResolver_Class
-	extends ModuleBE_ExpressFunction_V2 {
+	extends ModuleBE_ExpressFunction_V2<Config> {
 
 	constructor(name: string = 'url') {
 		super(name);
@@ -16,6 +31,60 @@ class Module_ShortUrlResolver_Class
 
 	private handleError = (res: Response, message: string) => {
 		res.status(HttpCodes._5XX.INTERNAL_SERVER_ERROR.code).send(message);
+	};
+
+	private resolveAnalyticsSecret = async (): Promise<string | undefined> => {
+		if (Storm.getInstance().getEnvironment() === 'local')
+			return this.config.localAnalyticsSecret;
+
+		const secretName = this.config.analyticsSecretName ?? SecretName_AnalyticsS2S;
+		return new SecretKey<string>(secretName).get();
+	};
+
+	private emitShortUrlHit = async (params: {
+		shortUrl: string;
+		searchParams: URLSearchParams;
+	}) => {
+		const baseUrl = this.config.analyticsBaseUrl;
+		if (!baseUrl) {
+			this.logWarning('Skipping short_url_hit — analyticsBaseUrl not configured');
+			return;
+		}
+
+		const secret = await this.resolveAnalyticsSecret();
+		if (!secret) {
+			this.logError('Skipping short_url_hit — analytics S2S secret unavailable');
+			return;
+		}
+
+		const facilityId =
+			params.searchParams.get('facilityId')
+			?? params.searchParams.get('facility-id')
+			?? undefined;
+		const environmentId =
+			params.searchParams.get('environmentId')
+			?? params.searchParams.get('environment-id')
+			?? undefined;
+
+		const event: TSAnalyticsEvent = {
+			key: 'short_url_hit',
+			timestamp: currentTimeMillis(),
+			properties: {shortUrl: params.shortUrl},
+			...(facilityId || environmentId
+				? {
+					groups: {
+						...(facilityId ? {facilityId} : {}),
+						...(environmentId ? {environmentId} : {}),
+					},
+				}
+				: {}),
+		};
+
+		await AxiosHttpModule
+			.createRequest(ApiDef_Analytics(baseUrl)._v1.sendEvents)
+			.setBodyAsJson({events: [event]})
+			.addHeader(HeaderKey_AnalyticsSecret, secret)
+			.executeSync();
 	};
 
 	protected createFunction(_express: Express): HttpsFunction {
@@ -31,17 +100,26 @@ class Module_ShortUrlResolver_Class
 			if (!dbShortUrl)
 				return this.handleError(res, `short url with path ${path} not found`);
 
-			//Handle url params
 			const url = new URL(dbShortUrl.fullUrl);
 			const queryParams = new URLSearchParams(req.query as Record<string, string>);
 
 			queryParams.forEach((value, key) => {
-				if (!url.searchParams.has(key)) {
+				if (!url.searchParams.has(key))
 					url.searchParams.append(key, value);
-				}
 			});
 
-			return res.status(HttpCodes._3XX.MOVED_PERMANENTLY).redirect(url.toString());
+			const redirectUrl = url.toString();
+			// ExpressFunction equivalent of ServerApi.addPostCallAction: flush redirect,
+			// then await side-effect before the handler returns (keeps Cloud Run CPU alive).
+			res.status(HttpCodes._3XX.MOVED_PERMANENTLY).redirect(redirectUrl);
+			try {
+				await this.emitShortUrlHit({
+					shortUrl: dbShortUrl._shortUrl,
+					searchParams: url.searchParams,
+				});
+			} catch (err) {
+				this.logError('Failed to emit short_url_hit', err);
+			}
 		});
 
 		return super.createFunction(_express);
