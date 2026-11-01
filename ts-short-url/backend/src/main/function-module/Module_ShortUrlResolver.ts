@@ -117,7 +117,7 @@ class Module_ShortUrlResolver_Class
 					shortUrl: dbShortUrl._shortUrl,
 					searchParams: url.searchParams,
 				});
-			} catch (err) {
+			} catch (err: any) {
 				this.logError('Failed to emit short_url_hit', err);
 			}
 		});
