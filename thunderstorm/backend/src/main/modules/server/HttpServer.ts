@@ -139,16 +139,29 @@ export class HttpServer_Class
 		const limit = typeof parserLimit === 'number' ? `${parserLimit}kb` : parserLimit;
 		if (limit) {
 			const jsonParser = express.json({limit, type: 'application/json'});
+			const urlencodedParser = express.urlencoded({
+				limit,
+				extended: true,
+				type: 'application/x-www-form-urlencoded',
+			});
 
 			this.getExpress().use((req, res, next) => {
-				// If upstream already set a body OR the stream is already consumed, skip parsing.
+				// Firebase already parsed the body, or the stream is gone. Do not parse again.
 				const alreadyHasBody = (req as any).body !== undefined;
 				const notReadable = !req.readable;
 
 				if (alreadyHasBody || notReadable)
 					return next();
 
-				return jsonParser(req, res, next);
+				// JSON parsing stamps req.body to {} before it rejects other content types.
+				const contentType = req.header('content-type') ?? '';
+				if (contentType.includes('application/x-www-form-urlencoded'))
+					return urlencodedParser(req, res, next);
+
+				if (contentType.includes('application/json'))
+					return jsonParser(req, res, next);
+
+				return next();
 			});
 		}
 
