@@ -306,14 +306,12 @@ describeLiveDeploy('Firebase Deploy Image Phase', () => {
  * Fetches Docker image labels from Artifact Registry using Docker Registry API v2.
  *
  * @param containerDeployment - Container deployment configuration
- * @param imageName - Registry image name, including the function suffix
  * @param imageTag - Image tag to fetch (defaults to 'latest')
  * @param logger - Optional logger for debug messages
  * @returns Promise resolving to the labels object
  */
 async function fetchImageLabels(
 	containerDeployment: Unit_FirebaseFunctionsApp_Config['containerDeployment'],
-	imageName: string,
 	imageTag: string = 'latest',
 	logger?: { logDebug: (message: string, ...args: any[]) => void }
 ): Promise<Record<string, string>> {
@@ -322,6 +320,7 @@ async function fetchImageLabels(
 	}
 
 	const artifactRegistry = containerDeployment.artifactRegistry;
+	const imageName = containerDeployment.imageName;
 
 	// Build image reference components
 	const registryHost = `${artifactRegistry.region}-docker.pkg.dev`;
@@ -380,13 +379,12 @@ async function fetchImageLabels(
  */
 async function fetchDeploymentIdLabel(
 	containerDeployment: Unit_FirebaseFunctionsApp_Config['containerDeployment'],
-	imageName: string,
 	imageTag: string = 'latest',
 	logger?: { logDebug: (message: string, ...args: any[]) => void }
 ): Promise<string> {
 	logger?.logDebug('=== Fetching deployment-id label from image ===');
 
-	const labels = await fetchImageLabels(containerDeployment, imageName, imageTag, logger);
+	const labels = await fetchImageLabels(containerDeployment, imageTag, logger);
 
 	// Verify deployment-id label exists
 	if (!labels[CONST_DeploymentId]) {
@@ -428,7 +426,6 @@ async function verifyDeployedFunctionWithLabel(
 	// Fetch deployment-id label from Docker image
 	const deploymentIdFromLabel = await fetchDeploymentIdLabel(
 		containerDeployment,
-		functionUnit.imageNameForFunction(functionName),
 		imageTag,
 		logger || functionUnit
 	);
