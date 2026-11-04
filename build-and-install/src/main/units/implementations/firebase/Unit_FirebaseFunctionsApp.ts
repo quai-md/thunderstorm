@@ -323,26 +323,14 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 	}
 
 	/**
-	 * Builds Docker container image using Google Cloud Build and pushes it to Artifact Registry.
+	 * Builds one container image per configured function and pushes them to Artifact Registry.
 	 *
-	 * **Process**:
-	 * 1. Validates image tag is provided via CLI
-	 * 2. Validates containerDeployment config exists
-	 * 3. Constructs Artifact Registry image reference
-	 * 4. Creates isolated staging directory with only required files (dist/, Dockerfile, .cloudbuild.yaml)
-	 * 5. Builds and pushes image using Google Cloud Build from staging directory (no local Docker required)
+	 * Each function stages in its own folder, `.trash/build-image/<function>`, and the Cloud Build
+	 * submits run together. One shared folder cannot do that: preparing the next function deletes
+	 * the context the previous submit is still uploading.
 	 *
-	 * **Staging Directory Structure**:
-	 * - `dist/` - Contains compiled code and package.json (copied from output)
-	 * - `Dockerfile` - Container build instructions
-	 * - `.cloudbuild.yaml` - Cloud Build configuration
-	 *
-	 * **Requirements**:
-	 * - `--build-push-image <tag>` CLI flag with tag value
-	 * - `containerDeployment` config in unit config
-	 * - gcloud CLI installed and authenticated
-	 * - Cloud Build API enabled in GCP project
-	 * - No local Docker daemon required - Cloud Build handles everything
+	 * The image name is `<imageName>-<function>` (lowercase, `_` written as `-`) so the parallel
+	 * `:latest` pushes land on different images.
 	 */
 	async buildPushImage() {
 		const containerDeployment = this.config.containerDeployment;
@@ -350,50 +338,96 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			throw new ImplementationMissingException(`Missing containerDeployment config in unit ${this.config.key}`);
 
 		const imageTag = this.runtimeContext.runtimeParams.buildPushImage;
-		// Tag is validated by CLI param processor
+		if (!imageTag)
+			throw new ImplementationMissingException(`Missing buildPushImage runtime param in unit ${this.config.key}`);
 
-		const artifactRegistry = containerDeployment.artifactRegistry;
-		const imageName = containerDeployment.imageName;
+		const functionsToBuild = this.functionsForImageBuild();
 
-		const artifactRegistryPath = `${artifactRegistry.region}-docker.pkg.dev/${artifactRegistry.projectId}/${artifactRegistry.repository}`;
-		const imageReference = `${artifactRegistryPath}/${imageName}:${imageTag}`;
-		const imageReferenceLatest = `${artifactRegistryPath}/${imageName}:latest`;
+		this.logInfo(`Building and pushing ${functionsToBuild.length} container image(s) using Cloud Build`);
+		for (const functionConfig of functionsToBuild) {
+			const refs = this.functionImageReferences(functionConfig.name, imageTag);
+			this.logInfo(`  ${functionConfig.name}: ${refs.tagged}`);
+			this.logInfo(`  ${functionConfig.name} latest: ${refs.latest}`);
+		}
 
-		this.logInfo(`Building and pushing container image using Cloud Build:`);
-		this.logInfo(`  Tagged: ${imageReference}`);
-		this.logInfo(`  Latest: ${imageReferenceLatest}`);
-
-		// Check for dry run mode
 		if (this.runtimeContext.runtimeParams.dryRun) {
-			this.logInfo(`[DRY RUN] Would build and push image: ${imageReference} and ${imageReferenceLatest}`);
+			this.logInfo(`[DRY RUN] Would build and push ${functionsToBuild.length} image(s)`);
 			return;
 		}
 
-		// Ensure Artifact Registry repository exists
 		const commando = this.allocateCommando();
 		await ensureArtifactRegistryRepository(
 			commando,
-			artifactRegistry,
+			containerDeployment.artifactRegistry,
 			'docker',
 			this
 		);
 
-		// Create isolated staging directory for container build
-		// This ensures we have full control over what goes into the image
-		const buildOutputDir = resolve(this.config.fullPath, CONST_TrashDir);
-		const stagingDir = resolve(buildOutputDir, CONST_BuildImageDir);
-		await FileSystemUtils.folder.delete(stagingDir);
+		const buildImageRoot = resolve(this.config.fullPath, CONST_TrashDir, CONST_BuildImageDir);
+		await FileSystemUtils.folder.delete(buildImageRoot);
+		await FileSystemUtils.folder.create(buildImageRoot);
+
+		await Promise.all(functionsToBuild.map(functionConfig =>
+			this.buildFunctionImage(functionConfig, imageTag, buildImageRoot)
+		));
+	}
+
+	imageNameForFunction(functionName: string): string {
+		const imageName = this.config.containerDeployment?.imageName;
+		if (!imageName)
+			throw new ImplementationMissingException(`Missing containerDeployment.imageName in unit ${this.config.key}`);
+
+		return `${imageName}-${this.functionImageSuffix(functionName)}`;
+	}
+
+	private functionImageSuffix(functionName: string): string {
+		return functionName.replace(/_/g, '-').toLowerCase();
+	}
+
+	private functionImageReferences(functionName: string, tag: string): {tagged: string; latest: string} {
+		const artifactRegistry = this.config.containerDeployment?.artifactRegistry;
+		if (!artifactRegistry)
+			throw new ImplementationMissingException(`Missing containerDeployment.artifactRegistry in unit ${this.config.key}`);
+
+		const registryPath = `${artifactRegistry.region}-docker.pkg.dev/${artifactRegistry.projectId}/${artifactRegistry.repository}`;
+		const imageName = this.imageNameForFunction(functionName);
+		return {
+			tagged: `${registryPath}/${imageName}:${tag}`,
+			latest: `${registryPath}/${imageName}:latest`,
+		};
+	}
+
+	private functionsForImageBuild(): FunctionConfig[] {
+		const functions = this.normalizeFunctionConfigs();
+		if (functions.length === 0)
+			throw new ImplementationMissingException(`No functions configured in unit ${this.config.key}`);
+
+		const suffixOwner = new Map<string, string>();
+		for (const functionConfig of functions) {
+			const suffix = this.functionImageSuffix(functionConfig.name);
+			const owner = suffixOwner.get(suffix);
+			if (owner)
+				throw new ImplementationMissingException(`Functions '${owner}' and '${functionConfig.name}' both map to image folder '${suffix}' in unit ${this.config.key}`);
+
+			suffixOwner.set(suffix, functionConfig.name);
+		}
+
+		return functions;
+	}
+
+	private async buildFunctionImage(functionConfig: FunctionConfig, imageTag: string, buildImageRoot: string) {
+		const containerDeployment = this.config.containerDeployment;
+		if (!containerDeployment)
+			throw new ImplementationMissingException(`Missing containerDeployment config in unit ${this.config.key}`);
+
+		const functionName = functionConfig.name;
+		const stagingDir = resolve(buildImageRoot, this.functionImageSuffix(functionName));
 		await FileSystemUtils.folder.create(stagingDir);
 
-		// Copy only what's needed: the entire dist folder (which contains package.json)
 		const distTargetPath = resolve(stagingDir, 'dist');
 		await FileSystemUtils.folder.copy(this.config.output, distTargetPath);
-
 		this.logInfo(`Created staging directory at ${stagingDir}`);
-		this.logInfo(`  - Copied dist/ from ${this.config.output} (includes package.json)`);
 
-		// Generate Dockerfile in staging directory
-		// Build context will be staging directory
 		const dockerfileName = containerDeployment.dockerfile || 'Dockerfile';
 		const dockerfilePath = resolve(stagingDir, dockerfileName);
 		const dockerfileTemplate = this.config.runtime === 'node'
@@ -402,12 +436,13 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 		await FileSystemUtils.file.template.copy(dockerfileTemplate, dockerfilePath, {});
 		this.logInfo(`Created Dockerfile at ${dockerfilePath}`);
 
+		const refs = this.functionImageReferences(functionName, imageTag);
 		const metadata = {
 			...this.injectedMetadata,
 			'build.timestamp': new Date().toISOString(),
 			'build.tag': imageTag,
-			'build.project': artifactRegistry.projectId,
-			'build.image-name': imageName,
+			'build.project': containerDeployment.artifactRegistry.projectId,
+			'build.image-name': this.imageNameForFunction(functionName),
 			'version': this.runtimeContext.version,
 			'git.commit': process.env.GIT_COMMIT || '',
 			'git.branch': process.env.GIT_BRANCH || '',
@@ -420,26 +455,25 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			.join('\n');
 
 		const params = {
-			IMAGE_REFERENCE: imageReference,
-			IMAGE_REFERENCE_LATEST: imageReferenceLatest,
-			DOCKERFILE_PATH: dockerfileName,  // Simple path since build context is staging dir
+			IMAGE_REFERENCE: refs.tagged,
+			IMAGE_REFERENCE_LATEST: refs.latest,
+			DOCKERFILE_PATH: dockerfileName,
 			LABELS: labels
 		};
 
-		// Generate cloudbuild.yaml in staging directory
 		const cloudbuildYamlPath = resolve(stagingDir, '.cloudbuild.yaml');
 		await FileSystemUtils.file.template.copy(FunctionBuildTemplateFiles.cloudbuildYaml, cloudbuildYamlPath, params);
 
-		// Build from staging directory - this ensures only staging contents are uploaded
+		const commando = this.allocateCommando().setUID(`${this.config.key}--${this.functionImageSuffix(functionName)}`);
 		commando.cd(stagingDir);
-		await this.executeAsyncCommando(commando, `gcloud builds submit --config .cloudbuild.yaml --project ${artifactRegistry.projectId} .`, (stdout, stderr, exitCode) => {
+		await this.executeAsyncCommando(commando, `gcloud builds submit --config .cloudbuild.yaml --project ${containerDeployment.artifactRegistry.projectId} .`, (stdout, stderr, exitCode) => {
 			if (exitCode === 0)
 				return;
 
-			throw new CommandoException(`Failed to build and push Docker image with Cloud Build (exit code ${exitCode})`, stdout, stderr, exitCode);
+			throw new CommandoException(`Failed to build and push Docker image for ${functionName} with Cloud Build (exit code ${exitCode})`, stdout, stderr, exitCode);
 		});
 
-		this.logInfo(`Successfully built and pushed images: ${imageReference} and ${imageReferenceLatest}`);
+		this.logInfo(`Successfully built and pushed images: ${refs.tagged} and ${refs.latest}`);
 	}
 
 	/**
@@ -668,7 +702,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 	 * - `--deploy-image <tag>` CLI flag with tag value
 	 * - `containerDeployment` config in unit config
 	 * - `functions` array in unit config (legacy or new format)
-	 * - Image must already exist in Artifact Registry (built via buildPushImage)
+	 * - Each function's image must already exist in Artifact Registry (built via buildPushImage)
 	 * - gcloud CLI installed and authenticated
 	 * - Cloud Functions API enabled in GCP project
 	 * - Cloud Scheduler API enabled (for scheduled functions)
@@ -687,18 +721,13 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			throw new ImplementationMissingException(`Missing containerDeployment config in unit ${this.config.key}`);
 		}
 
-		const artifactRegistry = containerDeployment.artifactRegistry;
-		const imageName = containerDeployment.imageName;
-
-		const artifactRegistryPath = `${artifactRegistry.region}-docker.pkg.dev/${artifactRegistry.projectId}/${artifactRegistry.repository}`;
 		// Use 'latest' tag if no specific tag provided, otherwise use the provided tag
 		const imageTagToUse = imageTag || CONST_LatestTag;
-		const imageReference = `${artifactRegistryPath}/${imageName}:${imageTagToUse}`;
 
-		this.logInfo(`Deploying container image: ${imageReference}`);
+		this.logInfo(`Deploying function images at tag ${imageTagToUse}`);
 
 		if (this.config.runtime === 'node') {
-			await this.deployNodeContainer(imageReference, resolveCloudRunRegion(containerDeployment));
+			await this.deployNodeContainer(resolveCloudRunRegion(containerDeployment), imageTagToUse);
 			return;
 		}
 
@@ -731,7 +760,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 		const envConfig = this.getEnvConfig();
 		const runtimeProjectId = envConfig.projectId;
 
-		// Deploy each function separately with the same image but different entry points
+		// Deploy each function from the image built for that function
 		const commando = this.allocateCommando(Commando_NVM).applyNVM()
 			.cd(this.config.fullPath)
 			.setLogLevelFilter(deployLogFilter);
@@ -748,9 +777,12 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			// But FUNCTION_TARGET must use the original function name (with underscore) as it's exported in code
 			const serviceName = functionName.replace(/_/g, '-');
 
+			const imageReference = this.functionImageReferences(functionName, imageTagToUse).tagged;
+
 			this.logInfo(`Deploying function: ${functionName}`);
 			this.logInfo(`  Service name: ${serviceName} (Cloud Run requires dashes, not underscores)`);
 			this.logInfo(`  Function target: ${functionName} (original function name for FUNCTION_TARGET)`);
+			this.logInfo(`  Image: ${imageReference}`);
 			this.logInfo(`  Trigger type: ${trigger}`);
 
 			// Validate trigger-specific requirements
@@ -873,7 +905,7 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 		this.logInfo(`Functions deployed: `, this.functions);
 	}
 
-	private async deployNodeContainer(imageReference: string, region: string) {
+	private async deployNodeContainer(region: string, imageTag: string) {
 		const envConfig = this.getEnvConfig();
 		const runtimeProjectId = envConfig.projectId;
 		const allFunctionConfigs = this.normalizeFunctionConfigs();
@@ -887,7 +919,10 @@ export class Unit_FirebaseFunctionsApp<C extends Unit_FirebaseFunctionsApp_Confi
 			const resources = functionConfig.resources;
 			const buildOutputDir = resolve(this.config.fullPath, CONST_TrashDir);
 
+			const imageReference = this.functionImageReferences(functionConfig.name, imageTag).tagged;
+
 			this.logInfo(`Deploying Node container as Cloud Run service: ${serviceName}`);
+			this.logInfo(`  Image: ${imageReference}`);
 
 			const locationId = region.replace(/\d+$/, '');
 			const envVars: Record<string, string> = {

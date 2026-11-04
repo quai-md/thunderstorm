@@ -146,7 +146,7 @@ describeLiveDeploy('Firebase Build Push Image Phase', () => {
 			expect(validationResult).to.be.undefined;
 
 			// Verify Dockerfile was created (if it didn't exist)
-			const dockerfilePath = resolve(functionUnit.config.fullPath, '.trash/build-image', containerDeployment.dockerfile || 'dockerfile');
+			const dockerfilePath = resolve(functionUnit.config.fullPath, '.trash/build-image', 'hello', containerDeployment.dockerfile || 'dockerfile');
 			functionUnit.logDebug(`=== Verifying Dockerfile exists at: ${dockerfilePath} ===`);
 			expect(existsSync(dockerfilePath)).to.be.true;
 
@@ -168,7 +168,7 @@ describeLiveDeploy('Firebase Build Push Image Phase', () => {
 			expect(existsSync(packageJsonPath)).to.be.true;
 
 			// Verify image reference construction
-			const imageName = containerDeployment.imageName; // imageName is mandatory
+			const imageName = functionUnit.imageNameForFunction('hello');
 			const artifactRegistryPath = `${containerDeployment.artifactRegistry.region}-docker.pkg.dev/${containerDeployment.artifactRegistry.projectId}/${containerDeployment.artifactRegistry.repository}`;
 			const expectedImageReference = `${artifactRegistryPath}/${imageName}:test-build-push-v1.0.0`;
 
@@ -198,7 +198,7 @@ describeLiveDeploy('Firebase Build Push Image Phase', () => {
 			expect(containerDeployment.imageName).to.equal('firebase-function-hello');
 
 			// Verify Dockerfile exists
-			const dockerfilePath = resolve(functionUnit.config.fullPath, '.trash/build-image', containerDeployment.dockerfile || 'dockerfile');
+			const dockerfilePath = resolve(functionUnit.config.fullPath, '.trash/build-image', 'hello', containerDeployment.dockerfile || 'dockerfile');
 			functionUnit.logDebug(`=== Verifying Dockerfile exists at: ${dockerfilePath} ===`);
 			expect(existsSync(dockerfilePath)).to.be.true;
 
@@ -222,7 +222,7 @@ describeLiveDeploy('Firebase Build Push Image Phase', () => {
 			const containerDeployment = functionUnit.config.containerDeployment!;
 
 			// Verify Dockerfile exists with custom name (Dockerfile with capital D)
-			const dockerfilePath = resolve(functionUnit.config.fullPath, '.trash/build-image', containerDeployment.dockerfile || 'dockerfile');
+			const dockerfilePath = resolve(functionUnit.config.fullPath, '.trash/build-image', 'hello', containerDeployment.dockerfile || 'dockerfile');
 			functionUnit.logDebug(`=== Verifying Dockerfile exists at: ${dockerfilePath} ===`);
 			expect(existsSync(dockerfilePath)).to.be.true;
 			expect(containerDeployment.dockerfile).to.equal('Dockerfile');
