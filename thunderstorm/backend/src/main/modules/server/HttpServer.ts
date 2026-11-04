@@ -146,21 +146,22 @@ export class HttpServer_Class
 			});
 
 			this.getExpress().use((req, res, next) => {
-				// Firebase already parsed the body, or the stream is gone. Do not parse again.
-				const alreadyHasBody = (req as any).body !== undefined;
-				const notReadable = !req.readable;
-
-				if (alreadyHasBody || notReadable)
+				// Firebase already parsed the body. Do not parse again.
+				if ((req as any).body != null)
 					return next();
 
 				// JSON parsing stamps req.body to {} before it rejects other content types.
-				const contentType = req.header('content-type') ?? '';
-				if (contentType.includes('application/x-www-form-urlencoded'))
-					return urlencodedParser(req, res, next);
+				if (req.readable) {
+					const contentType = req.header('content-type') ?? '';
+					if (contentType.includes('application/x-www-form-urlencoded'))
+						return urlencodedParser(req, res, next);
 
-				if (contentType.includes('application/json'))
-					return jsonParser(req, res, next);
+					if (contentType.includes('application/json'))
+						return jsonParser(req, res, next);
+				}
 
+				// GET and OPTIONS have no body. MemKey rejects undefined.
+				(req as any).body = {};
 				return next();
 			});
 		}

@@ -2,6 +2,8 @@ import {addItemToArray, ImplementationMissingException} from '@nu-art/ts-common'
 import {MemStorage} from '@nu-art/ts-common/mem-storage/MemStorage';
 import {ModuleBE_BaseFunction} from './ModuleBE_BaseFunction.js';
 import {onSchedule, ScheduleFunction, ScheduleOptions} from 'firebase-functions/v2/scheduler';
+import express from 'express';
+import {listenOnPort} from './listen-on-port.js';
 
 /**
  An abstract class representing a scheduled Firebase Cloud Function.
@@ -54,6 +56,20 @@ export abstract class ModuleBE_FirebaseScheduler<ConfigType = any>
 			return;
 		}
 		return this.onScheduledEvent();
+	};
+
+	serve = (port: number) => {
+		const app = express();
+		app.post('/', async (_req, res) => {
+			try {
+				await this.handleCallback(() => new MemStorage().init(this._onScheduledEvent));
+				res.status(200).send();
+			} catch (e: any) {
+				this.logError('Scheduled run failed', e);
+				res.status(500).send(e.message);
+			}
+		});
+		return listenOnPort(app, port);
 	};
 
 	getFunction = () => {

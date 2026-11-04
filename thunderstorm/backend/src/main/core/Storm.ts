@@ -19,7 +19,7 @@
  * limitations under the License.
  */
 
-import {BeLogged, LogClient_Function, LogClient_Terminal, LogLevel, Module} from '@nu-art/ts-common';
+import {BeLogged, ImplementationMissingException, LogClient_Function, LogClient_Terminal, LogLevel, Module} from '@nu-art/ts-common';
 import {Firebase_ExpressFunction} from '@nu-art/firebase-backend/v1';
 import {StormConfig, BaseStorm} from './BaseStorm.js';
 import {HttpRoute, RouteResolver} from '../modules/server/route-resolvers/index.js';
@@ -102,11 +102,34 @@ export class Storm
 
 		this.init();
 
-		await HttpServer.startServer();
+		const active = this.resolveActiveFunction();
+		this.logInfo(`Starting function ${active.getName()}`);
+		if (typeof active.serve === 'function')
+			await active.serve(HttpServer.config.port);
+		else
+			await HttpServer.startServer();
+
 		const functions = await Promise.all(this.functions.map(moduleAsFunction => moduleAsFunction.onFunctionReady()));
 		await onStarted?.();
 
 		return functions;
+	}
+
+	private resolveActiveFunction() {
+		const service = process.env.K_SERVICE;
+		if (service) {
+			const match = this.functions.find(fn => fn.getName() === service);
+			if (match)
+				return match;
+
+			this.logWarning(`K_SERVICE=${service} matches no function. Starting api.`);
+		}
+
+		const api = this.functions.find(fn => fn.getName() === 'api');
+		if (!api)
+			throw new ImplementationMissingException(`No api function to start. K_SERVICE=${service}`);
+
+		return api;
 	}
 
 	static getInstance(): Storm {
