@@ -68,6 +68,7 @@ class ModuleFE_WindowMessenger_Class
 			return;
 		}
 
+		this.reportWindowMessage(false, event.origin, event.data);
 		this.dispatch(event.origin, event.data);
 	};
 
@@ -76,7 +77,27 @@ class ModuleFE_WindowMessenger_Class
 			return;
 
 		const pending = this.pendingMessages.splice(0);
-		pending.forEach(message => this.dispatch(message.origin, message.data));
+		pending.forEach(message => {
+			this.reportWindowMessage(true, message.origin, message.data);
+			this.dispatch(message.origin, message.data);
+		});
+	}
+
+	// Deferred so a message that arrived before the log client exists is still shipped.
+	private reportWindowMessage(buffered: boolean, origin: string, data: unknown) {
+		const marker = `window-message buffered=${buffered} origin=${origin} keys=${this.messageKeys(data)}`;
+		setTimeout(() => this.logInfo(marker), 0);
+	}
+
+	private messageKeys(data: unknown): string {
+		if (data === null || typeof data !== 'object')
+			return typeof data;
+
+		const keys = Object.keys(data).sort();
+		if (keys.length === 0)
+			return typeof data;
+
+		return keys.join(',');
 	}
 
 	private dispatch(origin: string, data: unknown) {
