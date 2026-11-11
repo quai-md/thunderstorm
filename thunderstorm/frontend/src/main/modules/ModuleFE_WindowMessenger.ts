@@ -16,13 +16,25 @@ export type Message = {
 	key: string
 }
 
+type PendingWindowMessage = {
+	origin: string;
+	data: unknown;
+};
+
 class ModuleFE_WindowMessenger_Class
 	extends Module {
 
 	//######################### Static #########################
 
 	readonly receivers: BaseReceiver<any>[] = [];
-	private listener?: (e: MessageEvent) => void;
+	private readonly pendingMessages: PendingWindowMessage[] = [];
+	private listener?: (event: MessageEvent) => void;
+
+	constructor() {
+		super();
+		// postMessage is not queued. Listen at load so a message that arrives before mount is kept.
+		this.installEarlyListener();
+	}
 
 	//######################### Life Cycle #########################
 
@@ -31,19 +43,44 @@ class ModuleFE_WindowMessenger_Class
 			return;
 
 		this.receivers.push(receiver);
-		if (this.receivers.length > 0 && !this.listener)
-			window.addEventListener('message', this.listener = (e: MessageEvent) => {
-				const {data, origin} = e;
-				this.receivers.forEach(receiver => receiver.execute(origin, data));
-			});
+		this.flushPending();
 	}
 
 	removeReceiver(receiver: BaseReceiver<any>) {
 		removeItemFromArray(this.receivers, receiver);
+	}
+
+	private installEarlyListener() {
+		if (this.listener)
+			return;
+
+		const host = globalThis.window;
+		if (!host)
+			return;
+
+		this.listener = this.onMessage;
+		host.addEventListener('message', this.listener);
+	}
+
+	private readonly onMessage = (event: MessageEvent) => {
 		if (this.receivers.length === 0) {
-			window.removeEventListener('message', this.listener!);
-			delete this.listener;
+			this.pendingMessages.push({origin: event.origin, data: event.data});
+			return;
 		}
+
+		this.dispatch(event.origin, event.data);
+	};
+
+	private flushPending() {
+		if (this.receivers.length === 0 || this.pendingMessages.length === 0)
+			return;
+
+		const pending = this.pendingMessages.splice(0);
+		pending.forEach(message => this.dispatch(message.origin, message.data));
+	}
+
+	private dispatch(origin: string, data: unknown) {
+		this.receivers.forEach(receiver => receiver.execute(origin, data));
 	}
 
 	sendMessage<T extends Message>(message: T, target: Messagable) {
