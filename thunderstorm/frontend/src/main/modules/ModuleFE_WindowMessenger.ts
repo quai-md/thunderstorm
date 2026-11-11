@@ -63,12 +63,14 @@ class ModuleFE_WindowMessenger_Class
 	}
 
 	private readonly onMessage = (event: MessageEvent) => {
-		if (this.receivers.length === 0) {
+		const buffered = this.receivers.length === 0;
+		this.reportWindowMessage(buffered, event.origin, event.data);
+
+		if (buffered) {
 			this.pendingMessages.push({origin: event.origin, data: event.data});
 			return;
 		}
 
-		this.reportWindowMessage(false, event.origin, event.data);
 		this.dispatch(event.origin, event.data);
 	};
 
@@ -77,10 +79,7 @@ class ModuleFE_WindowMessenger_Class
 			return;
 
 		const pending = this.pendingMessages.splice(0);
-		pending.forEach(message => {
-			this.reportWindowMessage(true, message.origin, message.data);
-			this.dispatch(message.origin, message.data);
-		});
+		pending.forEach(message => this.dispatch(message.origin, message.data));
 	}
 
 	private reportWindowMessage(buffered: boolean, origin: string, data: unknown) {
