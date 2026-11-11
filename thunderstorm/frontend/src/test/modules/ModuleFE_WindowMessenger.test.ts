@@ -23,13 +23,12 @@ function mountCollector(filter?: (message: unknown) => boolean) {
 
 describe('ModuleFE_WindowMessenger early listener', () => {
 
-	afterEach(async () => {
+	afterEach(() => {
 		mounted.forEach(receiver => receiver.unmount());
 		mounted.length = 0;
 		const sink = new Receiver<LaunchMessage>('.*', (data: unknown) => [{key: 'launch', data}]);
 		sink.mount();
 		sink.unmount();
-		await new Promise(resolve => setTimeout(resolve, 0));
 	});
 
 	it('listens before any receiver is mounted', () => {
@@ -83,23 +82,22 @@ describe('ModuleFE_WindowMessenger early listener', () => {
 		assert.equal(messageListenerCount(), 1);
 	});
 
-	it('logs keys of a buffered message and not its values', async () => {
+	it('logs keys of a buffered message and not its values', () => {
 		const lines: string[] = [];
-		const original = ModuleFE_WindowMessenger.logInfo;
-		ModuleFE_WindowMessenger.logInfo = (...toLog) => {
-			lines.push(toLog.map(item => String(item)).join(' '));
+		const original = console.log;
+		console.log = (line?: unknown) => {
+			lines.push(String(line));
 		};
 		try {
 			emitWindowMessage('https://parent.example', {encounterFhirId: 'secret-value', launchTimestamp: '1'});
 			mountCollector();
-			await new Promise(resolve => setTimeout(resolve, 0));
 
 			assert.equal(lines.length, 1);
 			assert.equal(lines[0].includes('buffered=true'), true);
 			assert.equal(lines[0].includes('keys=encounterFhirId,launchTimestamp'), true);
 			assert.equal(lines[0].includes('secret-value'), false);
 		} finally {
-			ModuleFE_WindowMessenger.logInfo = original;
+			console.log = original;
 		}
 	});
 

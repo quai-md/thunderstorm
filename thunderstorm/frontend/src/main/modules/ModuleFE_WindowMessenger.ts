@@ -83,10 +83,10 @@ class ModuleFE_WindowMessenger_Class
 		});
 	}
 
-	// Deferred so a message that arrived before the log client exists is still shipped.
 	private reportWindowMessage(buffered: boolean, origin: string, data: unknown) {
 		const marker = `window-message buffered=${buffered} origin=${origin} keys=${this.messageKeys(data)}`;
-		setTimeout(() => this.logInfo(marker), 0);
+		console.log(marker);
+		this.logInfo(marker);
 	}
 
 	private messageKeys(data: unknown): string {
