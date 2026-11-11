@@ -63,7 +63,10 @@ class ModuleFE_WindowMessenger_Class
 	}
 
 	private readonly onMessage = (event: MessageEvent) => {
-		if (this.receivers.length === 0) {
+		const buffered = this.receivers.length === 0;
+		this.reportWindowMessage(buffered, event.origin, event.data);
+
+		if (buffered) {
 			this.pendingMessages.push({origin: event.origin, data: event.data});
 			return;
 		}
@@ -77,6 +80,23 @@ class ModuleFE_WindowMessenger_Class
 
 		const pending = this.pendingMessages.splice(0);
 		pending.forEach(message => this.dispatch(message.origin, message.data));
+	}
+
+	private reportWindowMessage(buffered: boolean, origin: string, data: unknown) {
+		const marker = `window-message buffered=${buffered} origin=${origin} keys=${this.messageKeys(data)}`;
+		console.log(marker);
+		this.logInfo(marker);
+	}
+
+	private messageKeys(data: unknown): string {
+		if (data === null || typeof data !== 'object')
+			return typeof data;
+
+		const keys = Object.keys(data).sort();
+		if (keys.length === 0)
+			return typeof data;
+
+		return keys.join(',');
 	}
 
 	private dispatch(origin: string, data: unknown) {

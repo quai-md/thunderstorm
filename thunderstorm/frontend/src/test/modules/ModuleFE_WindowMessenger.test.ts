@@ -82,6 +82,27 @@ describe('ModuleFE_WindowMessenger early listener', () => {
 		assert.equal(messageListenerCount(), 1);
 	});
 
+	it('logs keys of a buffered message before it is stored', () => {
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (line?: unknown) => {
+			lines.push(String(line));
+		};
+		try {
+			emitWindowMessage('https://parent.example', {encounterFhirId: 'secret-value', launchTimestamp: '1'});
+
+			assert.equal(lines.length, 1);
+			assert.equal(lines[0].includes('buffered=true'), true);
+			assert.equal(lines[0].includes('keys=encounterFhirId,launchTimestamp'), true);
+			assert.equal(lines[0].includes('secret-value'), false);
+
+			mountCollector();
+			assert.equal(lines.length, 1);
+		} finally {
+			console.log = original;
+		}
+	});
+
 	it('drops a buffered message the receiver filters out', () => {
 		emitWindowMessage('https://parent.example', {kind: 'noise'});
 		emitWindowMessage('https://parent.example', {encounterFhirId: 'kept'});
