@@ -76,7 +76,7 @@ export abstract class ModuleFE_BaseDB<Proto extends DBProto<any>, Config extends
 	readonly cache: MemCache<Proto>;
 	readonly IDB!: IDBCache<Proto>;
 	readonly dbDef: DBDef_V3<Proto>;
-	private dataStatus: DataStatus;
+	protected dataStatus: DataStatus;
 	readonly defaultDispatcher: ThunderDispatcher<any, string>;
 	public readonly syncType: ModuleSyncType;
 
