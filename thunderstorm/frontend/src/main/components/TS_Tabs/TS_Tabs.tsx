@@ -19,6 +19,7 @@
  * limitations under the License.
  */
 import * as React from 'react';
+import {RefObject} from 'react';
 import {ComponentSync} from '../../core/ComponentSync.js';
 import {_className, stopPropagation} from '../../utils/tools.js';
 import './TS_Tabs.scss';
@@ -40,6 +41,7 @@ export type Props_Tabs = {
 	className?: string;
 	tabsHeaderClass?: string;
 	tabsContentClass?: string;
+	innerRef?: RefObject<HTMLDivElement>;
 	/**
 	 * Called only after clicking on a tab. Not called when a default first tab is selected during render.
 	 * @param selected id of the selected tab.
@@ -171,7 +173,7 @@ export class TS_Tabs
 		const contentClass = _className('ts-tabs__content', this.props.tabsContentClass);
 
 		return (
-			<div id={this.props.id} className={wrapperClass} data-tab-key={this.state.selectedTabId}>
+			<div id={this.props.id} className={wrapperClass} data-tab-key={this.state.selectedTabId} ref={this.props.innerRef}>
 				<div className={headerClass}>
 					{tabs.map(tab => {
 						const tabClasses = _className('ts-tabs__tab', 'unselectable', this.state.selectedTabId === tab.uid ? 'ts-tabs__focused' : undefined, tab.disabled
