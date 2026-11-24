@@ -1,8 +1,8 @@
-import {AssertionException, RuntimeModules} from '@nu-art/ts-common';
+import {AssertionException, ResolvableContent, resolveContent, RuntimeModules} from '@nu-art/ts-common';
 import {ModuleFE_BaseDB} from '../../modules/db-api-gen/ModuleFE_BaseDB.js';
 import {DataStatus} from '../../core/db-api-gen/consts.js';
 
-type Func = <F extends (...args: any[]) => any>(modules: ModuleFE_BaseDB<any, any>[], callback: F, fallback?: F) => F;
+type Func = <F extends (...args: any[]) => any>(modules: ResolvableContent<ModuleFE_BaseDB<any, any>[]>, callback: F, fallback?: F) => F;
 type ModulesAreReady = (modules: ModuleFE_BaseDB<any, any>[]) => boolean;
 type AssertRuntimeModules = (modules: ModuleFE_BaseDB<any, any>[]) => void;
 type Return = Func & { modulesAreReady: ModulesAreReady; assertRuntimeModules: AssertRuntimeModules };
@@ -21,7 +21,8 @@ const assertRuntimeModules: AssertRuntimeModules = (modules) => {
 	}
 };
 
-const func = <F extends (...args: any[]) => any>(modules: ModuleFE_BaseDB<any, any>[], callback: F, fallback?: F): F => {
+const func = <F extends (...args: any[]) => any>(modules: ResolvableContent<ModuleFE_BaseDB<any, any>[]>, callback: F, fallback?: F): F => {
+	modules = resolveContent(modules);
 	assertRuntimeModules(modules);
 	return ((...args: Parameters<F>) => {
 		if (!modulesAreReady(modules))
